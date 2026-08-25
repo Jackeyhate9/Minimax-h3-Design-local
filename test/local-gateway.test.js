@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -59,6 +60,32 @@ test("blocks unknown upstream routes instead of proxying", async () => {
   } finally {
     await gateway.close();
   }
+});
+
+test("proxies only non-model routes when official networking is enabled", async (t) => {
+  const upstream = http.createServer((request, response) => {
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ path: request.url, token: request.headers.token }));
+  });
+  await new Promise((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => upstream.close(resolve)));
+  const upstreamPort = upstream.address().port;
+  const config = defaultConfig();
+  config.listen.port = 0;
+  config.network = { allowNonModelCloud: true, upstreamBaseURL: `http://127.0.0.1:${upstreamPort}` };
+  const gateway = createLocalGateway(config, { log() {}, warn() {} });
+  await gateway.listen();
+  t.after(() => gateway.close());
+  const address = gateway.server.address();
+  const baseURL = `http://127.0.0.1:${address.port}`;
+
+  const account = await fetch(`${baseURL}/api/v1/account/profile?x=1`, { headers: { token: "local-test-token" } });
+  assert.equal(account.status, 200);
+  assert.deepEqual(await account.json(), { path: "/api/v1/account/profile?x=1", token: "local-test-token" });
+
+  const model = await fetch(`${baseURL}/api/v1/image/openai/generate`, { method: "POST", body: "{}" });
+  assert.equal(model.status, 503);
+  assert.equal((await model.json()).error.code, "H3_LOCAL_BACKEND_NOT_CONFIGURED");
 });
 
 test("rejects public model endpoints in user settings", async () => {

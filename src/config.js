@@ -10,6 +10,8 @@ export const DEFAULT_INSTALL_DIR = "";
 export function defaultConfig() {
   return {
     listen: { host: "127.0.0.1", port: 17666 },
+    network: { allowNonModelCloud: false, upstreamBaseURL: "" },
+    services: [],
     llm: {
       providerId: "local",
       name: "Local LLM",

@@ -28,6 +28,8 @@ npm start -- --install-dir '<MINIMAX_DESIGN_INSTALL_DIR>'
 
 The first `npm start` patches automatically. Always start through this launcher; the original shortcut does not start the local privacy gateway.
 
+On the configured Windows machine, `MiniMax Design Local.lnk` runs `scripts/start-minimax-design-local.ps1`, cold-starts configured local services, waits for health checks, and then opens the app. Logs are written to `runtime/logs/desktop-launch.log`.
+
 Restore the original installation:
 
 ```powershell

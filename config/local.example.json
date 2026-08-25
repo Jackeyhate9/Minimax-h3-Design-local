@@ -3,6 +3,11 @@
     "host": "127.0.0.1",
     "port": 17666
   },
+  "network": {
+    "allowNonModelCloud": false,
+    "upstreamBaseURL": ""
+  },
+  "services": [],
   "llm": {
     "providerId": "local",
     "name": "Local LLM",

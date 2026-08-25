@@ -18,6 +18,43 @@ function sendJSON(response, status, body) {
   response.end(payload);
 }
 
+function nonModelUpstreamBaseURL(value) {
+  const url = new URL(String(value));
+  const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  const localHttp = url.protocol === "http:" && (host === "localhost" || host === "::1" || host.startsWith("127."));
+  if (url.protocol !== "https:" && !localHttp) throw new Error("Non-model upstream must use HTTPS (or loopback HTTP for testing).");
+  return url.toString().replace(/\/$/, "");
+}
+
+async function readRawBody(request, limit = 25 * 1024 * 1024) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > limit) throw new Error("Upstream request body too large.");
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
+async function proxyNonModelRequest(request, response, config) {
+  const baseURL = nonModelUpstreamBaseURL(config.network.upstreamBaseURL);
+  const target = new URL(request.url ?? "/", `${baseURL}/`);
+  const headers = { ...request.headers };
+  for (const name of ["host", "content-length", "connection", "transfer-encoding"]) delete headers[name];
+  const method = request.method ?? "GET";
+  const body = method === "GET" || method === "HEAD" ? undefined : await readRawBody(request);
+  const upstream = await fetch(target, { method, headers, body, redirect: "manual", signal: AbortSignal.timeout(120000) });
+  const outputHeaders = {};
+  upstream.headers.forEach((value, name) => {
+    if (!["content-length", "transfer-encoding", "connection"].includes(name.toLowerCase())) outputHeaders[name] = value;
+  });
+  const payload = Buffer.from(await upstream.arrayBuffer());
+  outputHeaders["content-length"] = String(payload.length);
+  response.writeHead(upstream.status, outputHeaders);
+  response.end(payload);
+}
+
 async function probe(url, timeoutMs = 2000) {
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
@@ -92,6 +129,10 @@ function sanitizeSettings(value) {
     },
     comfyui: { baseURL: assertLocalServiceURL(String(value.comfyui?.baseURL || ""), "ComfyUI URL") },
     media: {}
+  };
+  normalized.network = {
+    allowNonModelCloud: value.network?.allowNonModelCloud === true,
+    upstreamBaseURL: value.network?.upstreamBaseURL ? nonModelUpstreamBaseURL(value.network.upstreamBaseURL) : ""
   };
   if (!normalized.llm.providerId || !normalized.llm.model) throw new Error("Provider ID 和默认模型 ID 不能为空。");
   for (const kind of ["image", "video", "speech", "music"]) {
@@ -250,6 +291,14 @@ export function createLocalGateway(config, logger = console, options = {}) {
       return;
     }
 
+    if (config.network?.allowNonModelCloud && config.network?.upstreamBaseURL) {
+      try {
+        await proxyNonModelRequest(request, response, config);
+      } catch (error) {
+        sendJSON(response, 502, { error: { type: "non_model_upstream_error", message: error instanceof Error ? error.message : String(error) } });
+      }
+      return;
+    }
     logger.warn(`[local-only] blocked unknown route ${request.method} ${pathname}`);
     sendJSON(response, 451, {
       error: {

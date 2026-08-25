@@ -1,8 +1,38 @@
 import fs from "node:fs";
+import http from "node:http";
+import https from "node:https";
 import path from "node:path";
 import crypto from "node:crypto";
 
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+function localRequest(url, options = {}) {
+  return new Promise((resolve, reject) => {
+    const target = new URL(url);
+    const client = target.protocol === "https:" ? https : http;
+    const body = options.body == null ? null : Buffer.isBuffer(options.body) ? options.body : Buffer.from(options.body);
+    const headers = { ...(options.headers ?? {}) };
+    if (body && headers["content-length"] == null) headers["content-length"] = String(body.length);
+    const request = client.request(target, { method: options.method ?? "GET", headers, timeout: options.timeout ?? 120000 }, (response) => {
+      const chunks = [];
+      response.on("data", (chunk) => chunks.push(chunk));
+      response.on("end", () => {
+        const payload = Buffer.concat(chunks);
+        resolve({
+          ok: (response.statusCode ?? 500) >= 200 && (response.statusCode ?? 500) < 300,
+          status: response.statusCode ?? 500,
+          async text() { return payload.toString("utf8"); },
+          async json() { return JSON.parse(payload.toString("utf8")); },
+          async arrayBuffer() { return payload; }
+        });
+      });
+    });
+    request.once("timeout", () => request.destroy(new Error(`Local request timeout: ${target}`)));
+    request.once("error", reject);
+    if (body) request.write(body);
+    request.end();
+  });
+}
 
 function localBaseURL(value) {
   const url = new URL(String(value));
@@ -47,10 +77,14 @@ function transformed(value, transform) {
 async function uploadImage(baseURL, file) {
   const absolute = path.resolve(String(file));
   if (!fs.existsSync(absolute)) throw new Error(`Input media file not found: ${absolute}`);
-  const form = new FormData();
-  form.append("image", new Blob([fs.readFileSync(absolute)]), path.basename(absolute));
-  form.append("overwrite", "true");
-  const response = await fetch(`${baseURL}/upload/image`, { method: "POST", body: form });
+  const boundary = `----h3-local-${crypto.randomUUID()}`;
+  const filename = path.basename(absolute).replace(/["\r\n]/g, "_");
+  const body = Buffer.concat([
+    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="image"; filename="${filename}"\r\nContent-Type: application/octet-stream\r\n\r\n`),
+    fs.readFileSync(absolute),
+    Buffer.from(`\r\n--${boundary}\r\nContent-Disposition: form-data; name="overwrite"\r\n\r\ntrue\r\n--${boundary}--\r\n`)
+  ]);
+  const response = await localRequest(`${baseURL}/upload/image`, { method: "POST", headers: { "content-type": `multipart/form-data; boundary=${boundary}` }, body });
   if (!response.ok) throw new Error(`ComfyUI upload failed (${response.status}): ${await response.text()}`);
   const result = await response.json();
   return result.subfolder ? `${result.subfolder}/${result.name}` : result.name;
@@ -84,7 +118,7 @@ function outputFiles(history) {
 
 async function downloadOutput(baseURL, item, outputDir) {
   const query = new URLSearchParams({ filename: item.filename, subfolder: item.subfolder ?? "", type: item.type ?? "output" });
-  const response = await fetch(`${baseURL}/view?${query}`);
+  const response = await localRequest(`${baseURL}/view?${query}`);
   if (!response.ok) throw new Error(`ComfyUI output download failed (${response.status})`);
   fs.mkdirSync(outputDir, { recursive: true });
   const extension = path.extname(item.filename) || ".bin";
@@ -99,7 +133,7 @@ export async function runComfyUIWorkflow({ profile, fallbackBaseURL, body, outpu
   const baseURL = localBaseURL(selected.baseURL || fallbackBaseURL);
   const workflow = JSON.parse(fs.readFileSync(selected.workflow, "utf8"));
   await applyInputMap(workflow, body, selected.inputMap, baseURL);
-  const submitted = await fetch(`${baseURL}/prompt`, {
+  const submitted = await localRequest(`${baseURL}/prompt`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ prompt: workflow, client_id: `h3-local-${crypto.randomUUID()}` })
@@ -111,7 +145,7 @@ export async function runComfyUIWorkflow({ profile, fallbackBaseURL, body, outpu
   const deadline = Date.now() + (Number(profile.timeoutSeconds) || 900) * 1000;
   while (Date.now() < deadline) {
     await sleep(pollMilliseconds);
-    const response = await fetch(`${baseURL}/history/${encodeURIComponent(promptId)}`);
+    const response = await localRequest(`${baseURL}/history/${encodeURIComponent(promptId)}`);
     if (!response.ok) continue;
     const history = (await response.json())[promptId];
     if (!history) continue;
