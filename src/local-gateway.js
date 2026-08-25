@@ -6,6 +6,7 @@ import { localModelCatalog, localLLMProviderConfig } from "./provider-config.js"
 import { settingsPage } from "./settings-page.js";
 import { createMediaTaskRunner } from "./comfyui-adapter.js";
 import { createGpuScheduler } from "./gpu-scheduler.js";
+import { createTextTaskRunner, unloadLocalLLM } from "./text-adapter.js";
 
 const MODEL_ROUTE = /^\/api\/(?:v\d+\/)?(?:image|video|audio|speech|music|tool|generate|models|super-resolution)(?:\/|$)/i;
 const CONFIG_ROUTES = new Set(["/api/v1/config", "/api/v1/models/config"]);
@@ -79,23 +80,6 @@ function proxyLocalLLMRequest(request, response, config) {
     });
     request.pipe(upstreamRequest);
   });
-}
-
-async function unloadOllamaModel(config, logger) {
-  if (config.gpu?.unloadAfterTask === false || config.llm.unloadStrategy === "none") return;
-  const root = assertLocalServiceURL(config.llm.baseURL, "LLM Base URL").replace(/\/v1\/?$/i, "");
-  try {
-    const response = await fetch(`${root}/api/generate`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ model: config.llm.model, keep_alive: 0 }),
-      signal: AbortSignal.timeout(30000)
-    });
-    if (!response.ok) logger.warn?.(`[h3-local] Ollama unload returned HTTP ${response.status}`);
-    else logger.log?.(`[h3-local] Ollama model unloaded: ${config.llm.model}`);
-  } catch (error) {
-    logger.warn?.(`[h3-local] Ollama unload failed: ${error instanceof Error ? error.message : String(error)}`);
-  }
 }
 
 async function probe(url, timeoutMs = 2000) {
@@ -254,6 +238,7 @@ function saveSettings(configPath, config) {
 export function createLocalGateway(config, logger = console, options = {}) {
   const gpuScheduler = options.gpuScheduler ?? createGpuScheduler(logger);
   const mediaTasks = createMediaTaskRunner(config, logger, { serviceManager: options.serviceManager, gpuScheduler });
+  const textTasks = createTextTaskRunner(config, logger, { serviceManager: options.serviceManager, gpuScheduler });
   const server = http.createServer(async (request, response) => {
     const host = request.headers.host ?? `${config.listen.host}:${config.listen.port}`;
     const url = new URL(request.url ?? "/", `http://${host}`);
@@ -321,13 +306,27 @@ export function createLocalGateway(config, logger = console, options = {}) {
           try {
             await proxyLocalLLMRequest(request, response, config);
           } finally {
-            await unloadOllamaModel(config, logger);
+            await unloadLocalLLM(config, logger);
           }
         });
       } catch (error) {
         if (!response.headersSent) sendJSON(response, 502, { error: { type: "local_llm_error", message: error instanceof Error ? error.message : String(error) }, local_only: true });
         else response.destroy(error instanceof Error ? error : undefined);
       }
+      return;
+    }
+    if (pathname === "/api/v2/text/generate" && request.method === "POST") {
+      try {
+        sendJSON(response, 202, textTasks.submit(await readBody(request)));
+      } catch (error) {
+        sendJSON(response, 400, { error: error instanceof Error ? error.message : String(error), local_only: true });
+      }
+      return;
+    }
+    const textTaskMatch = pathname.match(/^\/api\/v2\/text\/tasks\/([^/]+)$/);
+    if (textTaskMatch && request.method === "GET") {
+      const task = textTasks.query(decodeURIComponent(textTaskMatch[1]));
+      sendJSON(response, task ? 200 : 404, task ?? { status: "failed", base: { message: "Local text task not found." } });
       return;
     }
     const submitMatch = pathname.match(/^\/api\/generate\/(image|video|speech|music)\/submit$/);

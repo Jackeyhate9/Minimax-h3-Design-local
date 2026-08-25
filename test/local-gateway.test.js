@@ -58,6 +58,44 @@ test("starts the configured LLM service only when the local OpenAI route is call
   assert.deepEqual(unloadBody, { model: config.llm.model, keep_alive: 0 });
 });
 
+test("runs MiniMax v2 text tasks through the configured local LLM", async (t) => {
+  const upstream = http.createServer(async (request, response) => {
+    if (request.url === "/v1/chat/completions") {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ choices: [{ message: { content: "LOCAL_TEXT_RESULT" } }] }));
+      return;
+    }
+    response.writeHead(404).end();
+  });
+  await new Promise((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => upstream.close(resolve)));
+  const config = defaultConfig();
+  config.listen.port = 0;
+  config.gpu.unloadAfterTask = false;
+  config.llm.baseURL = `http://127.0.0.1:${upstream.address().port}/v1`;
+  const gateway = createLocalGateway(config, { log() {}, warn() {}, error() {} });
+  await gateway.listen();
+  t.after(() => gateway.close());
+  const baseURL = `http://127.0.0.1:${gateway.server.address().port}`;
+
+  const submitted = await fetch(`${baseURL}/api/v2/text/generate`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ model: config.llm.model, prompt: "write locally", params: {} })
+  });
+  assert.equal(submitted.status, 202);
+  const { task_id: taskId } = await submitted.json();
+  let task;
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const response = await fetch(`${baseURL}/api/v2/text/tasks/${taskId}`);
+    task = await response.json();
+    if (task.status !== "processing") break;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.equal(task.status, "success");
+  assert.equal(task.text, "LOCAL_TEXT_RESULT");
+});
+
 test("blocks an unconfigured media route locally", async () => {
   const config = defaultConfig();
   config.listen.port = 0;

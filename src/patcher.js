@@ -9,6 +9,9 @@ const FUNCTION_ANCHOR = "function wrapCloudGatewayWithRuntimeBaseUrl(base) {";
 const LOCAL_OVERRIDE = `${FUNCTION_ANCHOR}\n  ${PATCH_MARKER}\n  const h3LocalGatewayBaseUrl = process.env.H3_LOCAL_GATEWAY_BASE_URL?.trim();`;
 const GETTER_ANCHOR = "get() {\n      const override = getCloudEnvOverride();";
 const GETTER_PATCH = "get() {\n      if (h3LocalGatewayBaseUrl) return h3LocalGatewayBaseUrl.replace(/\\\/$/, \"\");\n      const override = getCloudEnvOverride();";
+const TEXT_MODELS_ANCHOR = "var TEXT_MODELS = [";
+const TEXT_MODEL_START = "/* H3_LOCAL_TEXT_MODEL_START */";
+const TEXT_MODEL_END = "/* H3_LOCAL_TEXT_MODEL_END */";
 
 function sha256(data) {
   return crypto.createHash("sha256").update(data).digest("hex");
@@ -39,14 +42,36 @@ function backupFiles(paths, backupRoot) {
   return dir;
 }
 
-function patchGateway(file) {
-  let source = fs.readFileSync(file, "utf8");
-  if (source.includes(PATCH_MARKER)) return false;
-  if (!source.includes(FUNCTION_ANCHOR) || !source.includes(GETTER_ANCHOR)) {
-    throw new Error("Unsupported gateway build: local-routing anchors were not found. No file was changed.");
+function localTextModelBlock(config) {
+  const providerId = config.llm.providerId || "local";
+  const model = config.llm.model || "local-model";
+  const id = `${providerId}/${model}`;
+  return `${TEXT_MODEL_START}\n  {\n    id: ${JSON.stringify(id)},\n    name: ${JSON.stringify(`${model} (Local)`)},\n    model_name: ${JSON.stringify(model)},\n    provider: ${JSON.stringify(providerId)},\n    backend: BACKEND_TEXT_OPENAI,\n    subtitle: { label: \"local\", latency: \"local\" }\n  },\n  ${TEXT_MODEL_END}`;
+}
+
+function patchedGatewaySource(source, config) {
+  let next = source;
+  if (!next.includes(PATCH_MARKER)) {
+    if (!next.includes(FUNCTION_ANCHOR) || !next.includes(GETTER_ANCHOR)) {
+      throw new Error("Unsupported gateway build: local-routing anchors were not found. No file was changed.");
+    }
+    next = next.replace(FUNCTION_ANCHOR, LOCAL_OVERRIDE).replace(GETTER_ANCHOR, GETTER_PATCH);
   }
-  source = source.replace(FUNCTION_ANCHOR, LOCAL_OVERRIDE).replace(GETTER_ANCHOR, GETTER_PATCH);
-  writeAtomic(file, source);
+  const block = localTextModelBlock(config);
+  const blockPattern = new RegExp(`${TEXT_MODEL_START.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[\\s\\S]*?${TEXT_MODEL_END.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`);
+  if (blockPattern.test(next)) next = next.replace(blockPattern, block);
+  else {
+    if (!next.includes(TEXT_MODELS_ANCHOR)) throw new Error("Unsupported gateway build: TEXT_MODELS anchor was not found. No file was changed.");
+    next = next.replace(TEXT_MODELS_ANCHOR, `${TEXT_MODELS_ANCHOR}\n  ${block}`);
+  }
+  return next;
+}
+
+function patchGateway(file, config) {
+  const source = fs.readFileSync(file, "utf8");
+  const next = patchedGatewaySource(source, config);
+  if (next === source) return false;
+  writeAtomic(file, next);
   return true;
 }
 
@@ -69,7 +94,7 @@ export function inspectInstall(installDir) {
   return {
     paths,
     required: required.map((file) => ({ file, exists: fs.existsSync(file) })),
-    patched: fs.existsSync(paths.gatewayMain) && fs.readFileSync(paths.gatewayMain, "utf8").includes(PATCH_MARKER)
+    patched: fs.existsSync(paths.gatewayMain) && fs.readFileSync(paths.gatewayMain, "utf8").includes(PATCH_MARKER) && fs.readFileSync(paths.gatewayMain, "utf8").includes(TEXT_MODEL_START)
   };
 }
 
@@ -77,12 +102,13 @@ export function patchInstall(installDir, config) {
   const paths = installPaths(installDir);
   const files = [paths.gatewayMain, ...paths.baseConfigs];
   files.forEach(mustExist);
-  if (fs.readFileSync(paths.gatewayMain, "utf8").includes(PATCH_MARKER)) {
+  const gatewaySource = fs.readFileSync(paths.gatewayMain, "utf8");
+  if (patchedGatewaySource(gatewaySource, config) === gatewaySource) {
     return { changed: false, message: "Installation is already patched.", paths };
   }
   const backupDir = backupFiles(files, paths.backupRoot);
   try {
-    patchGateway(paths.gatewayMain);
+    patchGateway(paths.gatewayMain, config);
     paths.baseConfigs.forEach((file) => patchOpenCodeConfig(file, config));
   } catch (error) {
     restoreManifest(path.join(backupDir, "manifest.json"));
