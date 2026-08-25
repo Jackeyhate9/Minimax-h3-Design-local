@@ -1,0 +1,24 @@
+{
+  "listen": {
+    "host": "127.0.0.1",
+    "port": 17666
+  },
+  "ollama": {
+    "baseURL": "http://127.0.0.1:11434/v1",
+    "tagsURL": "http://127.0.0.1:11434/api/tags",
+    "model": "qwen3.8:latest"
+  },
+  "comfyui": {
+    "baseURL": "http://127.0.0.1:8188"
+  },
+  "media": {
+    "image": { "enabled": false, "workflow": null },
+    "video": { "enabled": false, "workflow": null },
+    "speech": { "enabled": false, "workflow": null },
+    "music": { "enabled": false, "workflow": null }
+  },
+  "privacy": {
+    "blockUnknownRoutes": true,
+    "allowCloudFallback": false
+  }
+}

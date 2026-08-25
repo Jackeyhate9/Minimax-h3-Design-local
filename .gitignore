@@ -1,0 +1,12 @@
+config/local.json
+.h3-local-backup/
+logs/
+node_modules/
+*.log
+*.asar
+*.exe
+*.dll
+*.nupkg
+current/
+current Data/
+

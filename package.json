@@ -1,0 +1,19 @@
+{
+  "name": "minimax-h3-design-local",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-only model routing overlay for MiniMax H3 Design",
+  "type": "module",
+  "scripts": {
+    "doctor": "node src/cli.js doctor",
+    "patch": "node src/cli.js patch",
+    "unpatch": "node src/cli.js unpatch",
+    "start": "node src/cli.js start",
+    "serve": "node src/cli.js serve",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}
