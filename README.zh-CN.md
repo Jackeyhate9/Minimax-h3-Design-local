@@ -30,7 +30,7 @@ npm start -- --install-dir '<MINIMAX_DESIGN安装目录>'
 
 首次 `npm start` 会自动打补丁，以后每次启动都会自检并在应用更新后自动重新打补丁。必须通过该命令启动；原快捷方式不会启动本地隐私网关。
 
-本机安装完成后可直接双击桌面的 `MiniMax Design Local.lnk`。它会隐藏启动控制台，依次等待 Ollama、图片 ComfyUI、H3 ComfyUI 和本地桥健康，再显示 Design 窗口；启动日志保存在 `runtime/logs/desktop-launch.log`。
+本机安装完成后可直接双击桌面的 `H3 Design Local.cmd`。它会隐藏启动控制台，依次等待 Ollama、图片 ComfyUI、H3 ComfyUI 和本地桥健康，再显示 Design 窗口；启动日志保存在 `runtime/logs/desktop-launch.log`。如系统允许保留自定义 `.lnk`，也可将该脚本封装为传统快捷方式。
 
 配置里的 `workflow` 必须是 ComfyUI 的 API 格式 JSON，而不是仅供前端显示的画布 JSON。`inputMap` 将 H3 请求字段绑定到节点输入。详见 [用户指南](docs/USER-GUIDE.zh-CN.md)。
 
