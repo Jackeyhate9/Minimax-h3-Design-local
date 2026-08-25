@@ -16,6 +16,8 @@ export function defaultConfig() {
       providerId: "local",
       name: "Local LLM",
       baseURL: "http://127.0.0.1:11434/v1",
+      gatewayBaseURL: "",
+      service: "",
       discoveryURL: "http://127.0.0.1:11434/api/tags",
       model: "local-model",
       context: 32768,
@@ -23,8 +25,8 @@ export function defaultConfig() {
     },
     comfyui: { baseURL: "http://127.0.0.1:8188" },
     media: {
-      image: { enabled: false, adapter: "comfyui", baseURL: "", model: "", workflow: null, timeoutSeconds: 900, inputMap: {}, outputMap: {} },
-      video: { enabled: false, adapter: "comfyui", baseURL: "", model: "", workflow: null, timeoutSeconds: 3600, inputMap: {}, outputMap: {} },
+      image: { enabled: false, adapter: "comfyui", service: "", baseURL: "", model: "", workflow: null, timeoutSeconds: 900, inputMap: {}, outputMap: {} },
+      video: { enabled: false, adapter: "comfyui", service: "", baseURL: "", model: "", workflow: null, timeoutSeconds: 3600, inputMap: {}, outputMap: {} },
       speech: { enabled: false, adapter: "comfyui", baseURL: "", model: "", workflow: null, timeoutSeconds: 900, inputMap: {}, outputMap: {} },
       music: { enabled: false, adapter: "comfyui", baseURL: "", model: "", workflow: null, timeoutSeconds: 1800, inputMap: {}, outputMap: {} }
     },

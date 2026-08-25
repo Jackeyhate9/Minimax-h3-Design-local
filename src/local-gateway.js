@@ -1,4 +1,5 @@
 import http from "node:http";
+import https from "node:https";
 import fs from "node:fs";
 import path from "node:path";
 import { localModelCatalog, localLLMProviderConfig } from "./provider-config.js";
@@ -53,6 +54,26 @@ async function proxyNonModelRequest(request, response, config) {
   outputHeaders["content-length"] = String(payload.length);
   response.writeHead(upstream.status, outputHeaders);
   response.end(payload);
+}
+
+function proxyLocalLLMRequest(request, response, config) {
+  const baseURL = assertLocalServiceURL(config.llm.baseURL, "LLM Base URL");
+  const target = new URL(request.url ?? "/", `${baseURL.replace(/\/v1\/?$/i, "")}/`);
+  const headers = { ...request.headers };
+  for (const name of ["host", "connection", "transfer-encoding"]) delete headers[name];
+  const client = target.protocol === "https:" ? https : http;
+  return new Promise((resolve, reject) => {
+    const upstreamRequest = client.request(target, { method: request.method, headers }, (upstreamResponse) => {
+      const outputHeaders = { ...upstreamResponse.headers };
+      for (const name of ["connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers", "transfer-encoding", "upgrade"]) delete outputHeaders[name];
+      response.writeHead(upstreamResponse.statusCode ?? 502, outputHeaders);
+      upstreamResponse.pipe(response);
+      upstreamResponse.once("end", resolve);
+    });
+    upstreamRequest.once("error", reject);
+    request.once("aborted", () => upstreamRequest.destroy());
+    request.pipe(upstreamRequest);
+  });
 }
 
 async function probe(url, timeoutMs = 2000) {
@@ -122,6 +143,8 @@ function sanitizeSettings(value) {
       providerId: String(llm.providerId || "local").trim().replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 64),
       name: String(llm.name || "Local LLM").trim().slice(0, 100),
       baseURL: assertLocalServiceURL(String(llm.baseURL || ""), "LLM Base URL"),
+      gatewayBaseURL: llm.gatewayBaseURL ? assertLocalServiceURL(String(llm.gatewayBaseURL), "LLM Gateway URL") : "",
+      service: String(llm.service || "").trim().slice(0, 100),
       discoveryURL: llm.discoveryURL ? assertLocalServiceURL(String(llm.discoveryURL), "模型发现地址") : "",
       model: String(llm.model || "").trim().slice(0, 200),
       context: Math.max(2048, Math.min(1048576, Number(llm.context) || 32768)),
@@ -147,6 +170,7 @@ function sanitizeSettings(value) {
     normalized.media[kind] = {
       enabled: entry.enabled === true,
       adapter: "comfyui",
+      service: String(entry.service || "").trim().slice(0, 100),
       baseURL: entry.baseURL ? assertLocalServiceURL(String(entry.baseURL), `${kind} ComfyUI URL`) : "",
       model: String(entry.model || "").trim().slice(0, 200),
       workflow,
@@ -204,7 +228,7 @@ function saveSettings(configPath, config) {
 }
 
 export function createLocalGateway(config, logger = console, options = {}) {
-  const mediaTasks = createMediaTaskRunner(config, logger);
+  const mediaTasks = createMediaTaskRunner(config, logger, { serviceManager: options.serviceManager });
   const server = http.createServer(async (request, response) => {
     const host = request.headers.host ?? `${config.listen.host}:${config.listen.port}`;
     const url = new URL(request.url ?? "/", `http://${host}`);
@@ -241,6 +265,7 @@ export function createLocalGateway(config, logger = console, options = {}) {
     }
     if (pathname === "/api/local/discover" && request.method === "GET") {
       try {
+        if (config.llm.service) await options.serviceManager?.ensure(config.llm.service);
         sendJSON(response, 200, await discoverModels(url.searchParams.get("baseURL") ?? "", url.searchParams.get("discoveryURL") ?? ""));
       } catch (error) {
         sendJSON(response, 400, { error: error instanceof Error ? error.message : String(error) });
@@ -262,6 +287,16 @@ export function createLocalGateway(config, logger = console, options = {}) {
     }
     if (pathname === "/api/v1/models/config") {
       sendJSON(response, 200, localModelCatalog(config));
+      return;
+    }
+    if (/^\/v1(?:\/|$)/.test(pathname)) {
+      try {
+        if (config.llm.service) await options.serviceManager?.ensure(config.llm.service);
+        await proxyLocalLLMRequest(request, response, config);
+      } catch (error) {
+        if (!response.headersSent) sendJSON(response, 502, { error: { type: "local_llm_error", message: error instanceof Error ? error.message : String(error) }, local_only: true });
+        else response.destroy(error instanceof Error ? error : undefined);
+      }
       return;
     }
     const submitMatch = pathname.match(/^\/api\/generate\/(image|video|speech|music)\/submit$/);

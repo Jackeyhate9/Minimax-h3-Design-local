@@ -24,14 +24,12 @@ async function isReady(healthURL) {
   });
 }
 
-export async function ensureLocalServices(definitions = [], logger = console) {
-  const started = [];
-  for (const definition of definitions) {
-    if (definition?.enabled === false) continue;
+async function startService(definition, started, logger) {
+    if (definition?.enabled === false) throw new Error(`Service is disabled: ${definition?.id ?? definition?.name ?? "unknown"}`);
     const healthURL = assertLocalHealthURL(definition.healthURL);
     if (await isReady(healthURL)) {
       logger.log(`[h3-local] service ready: ${definition.name ?? healthURL}`);
-      continue;
+      return { external: true };
     }
     if (!definition.command) throw new Error(`Service command is missing: ${definition.name ?? healthURL}`);
     logger.log(`[h3-local] starting service: ${definition.name ?? definition.command}`);
@@ -50,13 +48,52 @@ export async function ensureLocalServices(definitions = [], logger = console) {
     }
     if (!(await isReady(healthURL))) throw new Error(`Service readiness timeout: ${definition.name ?? healthURL}`);
     logger.log(`[h3-local] service ready: ${definition.name ?? healthURL}`);
+    return { child, external: false };
+}
+
+export function createLocalServiceManager(definitions = [], logger = console) {
+  const available = new Map();
+  const started = [];
+  const pending = new Map();
+  for (const definition of definitions) {
+    if (!definition || definition.enabled === false) continue;
+    const id = String(definition.id ?? definition.name ?? "").trim();
+    if (!id) throw new Error("Every local service needs an id or name.");
+    available.set(id, definition);
   }
+
+  const ensure = async (id) => {
+    const key = String(id ?? "").trim();
+    if (!key) return null;
+    const definition = available.get(key);
+    if (!definition) throw new Error(`Local service is not configured: ${key}`);
+    if (!pending.has(key)) {
+      const task = startService(definition, started, logger).finally(() => pending.delete(key));
+      pending.set(key, task);
+    }
+    return pending.get(key);
+  };
+
   return {
     started,
+    ensure,
+    async ensureStartup() {
+      for (const [id, definition] of available) {
+        if (definition.startup !== "lazy") await ensure(id);
+      }
+    },
     async stop() {
-      for (const child of started.reverse()) {
+      for (const child of [...started].reverse()) {
         if (child.exitCode === null) child.kill();
       }
+      started.length = 0;
+      pending.clear();
     }
   };
+}
+
+export async function ensureLocalServices(definitions = [], logger = console) {
+  const manager = createLocalServiceManager(definitions, logger);
+  await manager.ensureStartup();
+  return manager;
 }

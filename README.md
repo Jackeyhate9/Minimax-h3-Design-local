@@ -28,7 +28,7 @@ npm start -- --install-dir '<MINIMAX_DESIGN_INSTALL_DIR>'
 
 The first `npm start` patches automatically. Always start through this launcher; the original shortcut does not start the local privacy gateway.
 
-On the configured Windows machine, the desktop `H3 Design Local.cmd` runs `scripts/start-minimax-design-local.ps1`, cold-starts configured local services, waits for health checks, and then opens the app. Logs are written to `runtime/logs/desktop-launch.log`.
+On the configured Windows machine, the desktop `H3 Design Local.exe` runs `scripts/start-minimax-design-local.ps1` and opens the app. Model services marked with `startup: "lazy"` stay off until their first matching request: LLM starts Ollama, image starts the image ComfyUI instance, and video starts the H3 ComfyUI instance. Services started by this session are stopped when Design closes. `H3 Design Local.cmd` remains a troubleshooting fallback. Logs are written to `runtime/logs/desktop-launch.log`.
 
 Restore the original installation:
 

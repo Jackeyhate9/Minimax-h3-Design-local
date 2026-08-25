@@ -9,7 +9,7 @@ export function localLLMProviderConfig(config) {
       [providerId]: {
         npm: "@ai-sdk/openai-compatible",
         name: llm.name || "Local LLM",
-        options: { baseURL: llm.baseURL },
+        options: { baseURL: llm.gatewayBaseURL || llm.baseURL },
         models: {
           [model]: {
             name: `${model} (Local)`,

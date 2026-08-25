@@ -26,6 +26,30 @@ test("serves local Ollama provider config and never cloud fallback", async () =>
   }
 });
 
+test("starts the configured LLM service only when the local OpenAI route is called", async (t) => {
+  const upstream = http.createServer((request, response) => {
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ path: request.url }));
+  });
+  await new Promise((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => upstream.close(resolve)));
+  const config = defaultConfig();
+  config.listen.port = 0;
+  config.llm.baseURL = `http://127.0.0.1:${upstream.address().port}/v1`;
+  config.llm.gatewayBaseURL = "http://127.0.0.1:17666/v1";
+  config.llm.service = "ollama";
+  const calls = [];
+  const gateway = createLocalGateway(config, { log() {}, warn() {} }, { serviceManager: { ensure: async (id) => calls.push(id) } });
+  await gateway.listen();
+  t.after(() => gateway.close());
+
+  assert.deepEqual(calls, []);
+  const response = await fetch(`http://127.0.0.1:${gateway.server.address().port}/v1/models`);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { path: "/v1/models" });
+  assert.deepEqual(calls, ["ollama"]);
+});
+
 test("blocks an unconfigured media route locally", async () => {
   const config = defaultConfig();
   config.listen.port = 0;
