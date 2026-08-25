@@ -16,10 +16,10 @@
     "baseURL": "http://127.0.0.1:8188"
   },
   "media": {
-    "image": { "enabled": false, "model": "", "workflow": null, "inputMap": {}, "outputMap": {} },
-    "video": { "enabled": false, "model": "", "workflow": null, "inputMap": {}, "outputMap": {} },
-    "speech": { "enabled": false, "model": "", "workflow": null, "inputMap": {}, "outputMap": {} },
-    "music": { "enabled": false, "model": "", "workflow": null, "inputMap": {}, "outputMap": {} }
+    "image": { "enabled": false, "adapter": "comfyui", "baseURL": "", "model": "", "workflow": null, "timeoutSeconds": 900, "inputMap": {}, "outputMap": {} },
+    "video": { "enabled": false, "adapter": "comfyui", "baseURL": "", "model": "", "workflow": null, "timeoutSeconds": 3600, "inputMap": {}, "outputMap": {} },
+    "speech": { "enabled": false, "adapter": "comfyui", "baseURL": "", "model": "", "workflow": null, "timeoutSeconds": 900, "inputMap": {}, "outputMap": {} },
+    "music": { "enabled": false, "adapter": "comfyui", "baseURL": "", "model": "", "workflow": null, "timeoutSeconds": 1800, "inputMap": {}, "outputMap": {} }
   },
   "privacy": {
     "blockUnknownRoutes": true,

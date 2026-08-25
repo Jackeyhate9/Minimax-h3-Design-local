@@ -5,7 +5,9 @@ import { createLocalGateway } from "./local-gateway.js";
 
 export async function launchLocal(installDir, config, logger = console) {
   const paths = installPaths(installDir);
-  const executable = fs.existsSync(paths.appExe) ? paths.appExe : paths.currentExe;
+  // The installation-root executable is Velopack's short-lived updater stub.
+  // Launch the real current app so the local bridge stays alive for the full UI session.
+  const executable = fs.existsSync(paths.currentExe) ? paths.currentExe : paths.appExe;
   if (!fs.existsSync(executable)) throw new Error(`MiniMax Design executable not found under ${paths.root}`);
 
   const gateway = createLocalGateway(config, logger, { configPath: process.env.H3_LOCAL_CONFIG });

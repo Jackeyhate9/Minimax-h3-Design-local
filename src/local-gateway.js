@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { localModelCatalog, localLLMProviderConfig } from "./provider-config.js";
 import { settingsPage } from "./settings-page.js";
+import { createMediaTaskRunner } from "./comfyui-adapter.js";
 
 const MODEL_ROUTE = /^\/api\/(?:v\d+\/)?(?:image|video|audio|speech|music|tool|generate|models|super-resolution)(?:\/|$)/i;
 const CONFIG_ROUTES = new Set(["/api/v1/config", "/api/v1/models/config"]);
@@ -96,14 +97,22 @@ function sanitizeSettings(value) {
   for (const kind of ["image", "video", "speech", "music"]) {
     const entry = media[kind] ?? {};
     const workflow = entry.workflow ? path.resolve(String(entry.workflow)) : null;
+    const editWorkflow = entry.editWorkflow ? path.resolve(String(entry.editWorkflow)) : null;
     if (entry.enabled && (!workflow || !fs.existsSync(workflow))) throw new Error(`${kind} 已启用，但 workflow 文件不存在。`);
+    if (editWorkflow && !fs.existsSync(editWorkflow)) throw new Error(`${kind} editWorkflow 文件不存在。`);
     const inputMap = entry.inputMap && typeof entry.inputMap === "object" && !Array.isArray(entry.inputMap) ? entry.inputMap : {};
+    const editInputMap = entry.editInputMap && typeof entry.editInputMap === "object" && !Array.isArray(entry.editInputMap) ? entry.editInputMap : {};
     const outputMap = entry.outputMap && typeof entry.outputMap === "object" && !Array.isArray(entry.outputMap) ? entry.outputMap : {};
     normalized.media[kind] = {
       enabled: entry.enabled === true,
+      adapter: "comfyui",
+      baseURL: entry.baseURL ? assertLocalServiceURL(String(entry.baseURL), `${kind} ComfyUI URL`) : "",
       model: String(entry.model || "").trim().slice(0, 200),
       workflow,
+      editWorkflow,
+      timeoutSeconds: Math.max(30, Math.min(21600, Number(entry.timeoutSeconds) || (kind === "video" ? 3600 : 900))),
       inputMap,
+      editInputMap,
       outputMap
     };
   }
@@ -154,6 +163,7 @@ function saveSettings(configPath, config) {
 }
 
 export function createLocalGateway(config, logger = console, options = {}) {
+  const mediaTasks = createMediaTaskRunner(config, logger);
   const server = http.createServer(async (request, response) => {
     const host = request.headers.host ?? `${config.listen.host}:${config.listen.port}`;
     const url = new URL(request.url ?? "/", `http://${host}`);
@@ -211,6 +221,27 @@ export function createLocalGateway(config, logger = console, options = {}) {
     }
     if (pathname === "/api/v1/models/config") {
       sendJSON(response, 200, localModelCatalog(config));
+      return;
+    }
+    const submitMatch = pathname.match(/^\/api\/generate\/(image|video|speech|music)\/submit$/);
+    if (submitMatch && request.method === "POST") {
+      try {
+        sendJSON(response, 202, mediaTasks.submit(submitMatch[1], await readBody(request)));
+      } catch (error) {
+        sendJSON(response, 503, {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+          error_code: error?.code ?? "local_backend_error",
+          failure_presentation: "terminal",
+          local_only: true
+        });
+      }
+      return;
+    }
+    const taskMatch = pathname.match(/^\/api\/generate\/tasks\/([^/]+)\/query$/);
+    if (taskMatch && request.method === "GET") {
+      const task = mediaTasks.query(decodeURIComponent(taskMatch[1]));
+      sendJSON(response, task ? 200 : 404, task ?? { ok: false, error: "Local generation task not found." });
       return;
     }
     if (MODEL_ROUTE.test(pathname) || CONFIG_ROUTES.has(pathname)) {

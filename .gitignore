@@ -9,4 +9,4 @@ node_modules/
 *.nupkg
 current/
 current Data/
-
+runtime/

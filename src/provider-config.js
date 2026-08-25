@@ -47,7 +47,7 @@ function mediaModel({ id, name, backend, type, tool, refs = 0, params = {} }) {
     params,
     type,
     display_name: name,
-    description: "Local-only placeholder routed to ComfyUI by H3 Local Bridge.",
+    description: "Local-only workflow routed to ComfyUI by H3 Local Bridge.",
     tool_names: [tool],
     visibility: "local",
     icon_url: "",
@@ -62,7 +62,7 @@ export function localModelCatalog(config) {
   const speechName = config.media.speech.model ? `Local Speech · ${config.media.speech.model}` : "Local ComfyUI Speech";
   const musicName = config.media.music.model ? `Local Music · ${config.media.music.model}` : "Local ComfyUI Music";
   return {
-    imageModels: [mediaModel({
+    imageModels: config.media.image.enabled ? [mediaModel({
       id: "gpt-image-2",
       name: imageName,
       backend: "openai",
@@ -73,8 +73,8 @@ export function localModelCatalog(config) {
         aspect_ratio: select("比例", ["1:1", "16:9", "9:16", "4:3", "3:4"], "1:1"),
         resolution: select("分辨率", ["1k", "2k", "4k"], "1k")
       }
-    })],
-    videoModels: [mediaModel({
+    })] : [],
+    videoModels: config.media.video.enabled ? [mediaModel({
       id: "wan2.6-i2v",
       name: videoName,
       backend: "wan_i2v",
@@ -85,22 +85,22 @@ export function localModelCatalog(config) {
         duration: select("时长", ["5", "10", "15"], "5"),
         resolution: select("分辨率", ["720P", "1080P"], "720P")
       }
-    })],
+    })] : [],
     audioModels: [
-      mediaModel({
+      ...(config.media.speech.enabled ? [mediaModel({
         id: "speech-2.8-hd",
         name: speechName,
         backend: "minimax_tts",
         type: "audio",
         tool: "hub_generate_audio_speech"
-      }),
-      mediaModel({
+      })] : []),
+      ...(config.media.music.enabled ? [mediaModel({
         id: "music-2.0",
         name: musicName,
         backend: "minimax_music",
         type: "audio",
         tool: "hub_generate_audio_music"
-      })
+      })] : [])
     ],
     textModels: [{
       id: textId,

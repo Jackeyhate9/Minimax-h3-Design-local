@@ -60,8 +60,8 @@ async function main() {
   }
   if (command === "start") {
     ensureLocalConfig(loaded.configPath, loaded.config);
-    const state = inspectInstall(installDir);
-    if (!state.patched) throw new Error("MiniMax Design is not patched. Run `npm run patch -- --install-dir <path>` first.");
+    const patch = patchInstall(installDir, loaded.config);
+    if (patch.changed) console.log(`[h3-local] MiniMax Design changed or updated; local-only patch reapplied. Backup: ${patch.backupDir}`);
     refreshOpenCodeConfigs(installDir, loaded.config);
     process.env.H3_LOCAL_CONFIG = loaded.configPath;
     await launchLocal(installDir, loaded.config);
