@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { installPaths } from "./config.js";
-import { ollamaProviderConfig } from "./provider-config.js";
+import { localLLMProviderConfig } from "./provider-config.js";
 
 const PATCH_MARKER = "/* H3_LOCAL_GATEWAY_OVERRIDE_V1 */";
 const FUNCTION_ANCHOR = "function wrapCloudGatewayWithRuntimeBaseUrl(base) {";
@@ -52,7 +52,7 @@ function patchGateway(file) {
 
 function patchOpenCodeConfig(file, config) {
   const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
-  const local = ollamaProviderConfig(config);
+  const local = localLLMProviderConfig(config);
   parsed.enabled_providers = local.enabled_providers;
   parsed.model = local.model;
   parsed.provider = local.provider;
@@ -89,6 +89,13 @@ export function patchInstall(installDir, config) {
     throw error;
   }
   return { changed: true, backupDir, paths };
+}
+
+export function refreshOpenCodeConfigs(installDir, config) {
+  const paths = installPaths(installDir);
+  paths.baseConfigs.forEach(mustExist);
+  paths.baseConfigs.forEach((file) => patchOpenCodeConfig(file, config));
+  return { files: paths.baseConfigs, model: localLLMProviderConfig(config).model };
 }
 
 function restoreManifest(manifestPath) {

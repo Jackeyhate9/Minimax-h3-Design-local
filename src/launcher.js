@@ -8,7 +8,7 @@ export async function launchLocal(installDir, config, logger = console) {
   const executable = fs.existsSync(paths.appExe) ? paths.appExe : paths.currentExe;
   if (!fs.existsSync(executable)) throw new Error(`MiniMax Design executable not found under ${paths.root}`);
 
-  const gateway = createLocalGateway(config, logger);
+  const gateway = createLocalGateway(config, logger, { configPath: process.env.H3_LOCAL_CONFIG });
   await gateway.listen();
 
   const env = {

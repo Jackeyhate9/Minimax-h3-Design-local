@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { defaultConfig } from "../src/config.js";
 import { createLocalGateway } from "../src/local-gateway.js";
@@ -14,9 +17,9 @@ test("serves local Ollama provider config and never cloud fallback", async () =>
     const response = await fetch(`${baseURL}/api/v1/config`);
     assert.equal(response.status, 200);
     const body = await response.json();
-    assert.equal(body.model, `ollama/${config.ollama.model}`);
-    assert.equal(body.provider.ollama.options.baseURL, config.ollama.baseURL);
-    assert.deepEqual(body.enabled_providers, ["ollama"]);
+    assert.equal(body.model, `local/${config.llm.model}`);
+    assert.equal(body.provider.local.options.baseURL, config.llm.baseURL);
+    assert.deepEqual(body.enabled_providers, ["local"]);
   } finally {
     await gateway.close();
   }
@@ -55,5 +58,71 @@ test("blocks unknown upstream routes instead of proxying", async () => {
     assert.equal(body.error.code, "H3_CLOUD_ROUTE_BLOCKED");
   } finally {
     await gateway.close();
+  }
+});
+
+test("rejects public model endpoints in user settings", async () => {
+  const config = defaultConfig();
+  config.listen.port = 0;
+  const gateway = createLocalGateway(config, { log() {}, warn() {} }, { configPath: "unused.json" });
+  await gateway.listen();
+  const address = gateway.server.address();
+  try {
+    const next = structuredClone(config);
+    next.llm.baseURL = "https://api.openai.com/v1";
+    const response = await fetch(`http://127.0.0.1:${address.port}/api/local/settings`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(next)
+    });
+    assert.equal(response.status, 400);
+    const body = await response.json();
+    assert.match(body.error, /回环|局域网/);
+  } finally {
+    await gateway.close();
+  }
+});
+
+test("serves the self-configuration control panel", async () => {
+  const config = defaultConfig();
+  config.listen.port = 0;
+  const gateway = createLocalGateway(config, { log() {}, warn() {} });
+  await gateway.listen();
+  const address = gateway.server.address();
+  try {
+    const response = await fetch(`http://127.0.0.1:${address.port}/`);
+    assert.equal(response.status, 200);
+    const html = await response.text();
+    assert.match(html, /本地模型配置/);
+    assert.match(html, /发现模型/);
+  } finally {
+    await gateway.close();
+  }
+});
+
+test("persists an explicit user model selection", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "h3-local-settings-"));
+  const configPath = path.join(tempDir, "local.json");
+  const config = defaultConfig();
+  config.listen.port = 0;
+  const gateway = createLocalGateway(config, { log() {}, warn() {} }, { configPath });
+  await gateway.listen();
+  const address = gateway.server.address();
+  try {
+    const next = structuredClone(config);
+    next.llm.model = "user-selected-model";
+    next.listen.port = address.port;
+    const response = await fetch(`http://127.0.0.1:${address.port}/api/local/settings`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(next)
+    });
+    assert.equal(response.status, 200);
+    const saved = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    assert.equal(saved.llm.model, "user-selected-model");
+    assert.equal(saved.privacy.allowCloudFallback, false);
+  } finally {
+    await gateway.close();
+    fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });

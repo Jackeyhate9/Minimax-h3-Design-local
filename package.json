@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "doctor": "node src/cli.js doctor",
+    "configure": "node src/cli.js serve",
     "patch": "node src/cli.js patch",
     "unpatch": "node src/cli.js unpatch",
     "start": "node src/cli.js start",

@@ -1,5 +1,6 @@
 param(
-  [string]$InstallDir = 'D:\AI\gongzuoliu\H3 design\MiniMax Design'
+  [Parameter(Mandatory=$true)]
+  [string]$InstallDir
 )
 
 $ErrorActionPreference = 'Stop'

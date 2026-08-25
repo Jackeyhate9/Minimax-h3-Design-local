@@ -4,7 +4,7 @@ import path from "node:path";
 import { DEFAULT_INSTALL_DIR, loadConfig, projectRoot } from "./config.js";
 import { createLocalGateway, diagnostics } from "./local-gateway.js";
 import { launchLocal } from "./launcher.js";
-import { inspectInstall, patchInstall, unpatchInstall } from "./patcher.js";
+import { inspectInstall, patchInstall, refreshOpenCodeConfigs, unpatchInstall } from "./patcher.js";
 
 function parseArgs(argv) {
   const [command = "doctor", ...rest] = argv;
@@ -29,8 +29,11 @@ function ensureLocalConfig(configPath, config) {
 async function main() {
   const { command, options } = parseArgs(process.argv.slice(2));
   const loaded = loadConfig(options.configPath);
-  if (options.model) loaded.config.ollama.model = options.model;
+  if (options.model) loaded.config.llm.model = options.model;
   const installDir = options.installDir ?? process.env.H3_INSTALL_DIR ?? DEFAULT_INSTALL_DIR;
+  if (!installDir && command !== "serve") {
+    throw new Error("MiniMax Design 安装目录未设置。请传入 --install-dir 或设置 H3_INSTALL_DIR。");
+  }
 
   if (command === "doctor") {
     console.log(JSON.stringify({
@@ -51,7 +54,7 @@ async function main() {
     return;
   }
   if (command === "serve") {
-    const gateway = createLocalGateway(loaded.config);
+    const gateway = createLocalGateway(loaded.config, console, { configPath: loaded.configPath });
     await gateway.listen();
     return;
   }
@@ -59,6 +62,8 @@ async function main() {
     ensureLocalConfig(loaded.configPath, loaded.config);
     const state = inspectInstall(installDir);
     if (!state.patched) throw new Error("MiniMax Design is not patched. Run `npm run patch -- --install-dir <path>` first.");
+    refreshOpenCodeConfigs(installDir, loaded.config);
+    process.env.H3_LOCAL_CONFIG = loaded.configPath;
     await launchLocal(installDir, loaded.config);
     return;
   }

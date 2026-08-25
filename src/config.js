@@ -5,22 +5,26 @@ import { fileURLToPath } from "node:url";
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 export const projectRoot = path.resolve(moduleDir, "..");
 
-export const DEFAULT_INSTALL_DIR = "D:\\AI\\gongzuoliu\\H3 design\\MiniMax Design";
+export const DEFAULT_INSTALL_DIR = "";
 
 export function defaultConfig() {
   return {
     listen: { host: "127.0.0.1", port: 17666 },
-    ollama: {
+    llm: {
+      providerId: "local",
+      name: "Local LLM",
       baseURL: "http://127.0.0.1:11434/v1",
-      tagsURL: "http://127.0.0.1:11434/api/tags",
-      model: "qwen3.8:latest"
+      discoveryURL: "http://127.0.0.1:11434/api/tags",
+      model: "local-model",
+      context: 32768,
+      output: 8192
     },
     comfyui: { baseURL: "http://127.0.0.1:8188" },
     media: {
-      image: { enabled: false, workflow: null },
-      video: { enabled: false, workflow: null },
-      speech: { enabled: false, workflow: null },
-      music: { enabled: false, workflow: null }
+      image: { enabled: false, model: "", workflow: null, inputMap: {}, outputMap: {} },
+      video: { enabled: false, model: "", workflow: null, inputMap: {}, outputMap: {} },
+      speech: { enabled: false, model: "", workflow: null, inputMap: {}, outputMap: {} },
+      music: { enabled: false, model: "", workflow: null, inputMap: {}, outputMap: {} }
     },
     privacy: { blockUnknownRoutes: true, allowCloudFallback: false }
   };
@@ -45,6 +49,16 @@ export function loadConfig(explicitPath) {
   const configPath = resolveConfigPath(explicitPath);
   if (!fs.existsSync(configPath)) return { config: defaultConfig(), configPath, source: "defaults" };
   const parsed = JSON.parse(fs.readFileSync(configPath, "utf8"));
+  if (!parsed.llm && parsed.ollama) {
+    parsed.llm = {
+      providerId: "local",
+      name: "Local LLM",
+      baseURL: parsed.ollama.baseURL,
+      discoveryURL: parsed.ollama.tagsURL,
+      model: parsed.ollama.model
+    };
+    delete parsed.ollama;
+  }
   return { config: merge(defaultConfig(), parsed), configPath, source: "file" };
 }
 

@@ -7,7 +7,7 @@ This repository does **not** redistribute MiniMax Design, its binaries, `app.asa
 ## Current stage
 
 - Preserves the original canvas, asset vault, project UI, bundled Skills and ComfyUI plugin.
-- Redirects OpenCode/agent LLM traffic to local Ollama.
+- Redirects OpenCode/agent LLM traffic to a user-selected local OpenAI-compatible or Ollama endpoint.
 - Redirects MiniMax model-gateway traffic to a loopback-only bridge.
 - Publishes local image/video/speech/music catalog entries.
 - Blocks every unconfigured media route locally. There is no cloud fallback.
@@ -15,13 +15,15 @@ This repository does **not** redistribute MiniMax Design, its binaries, `app.asa
 
 ## Quick start (Windows)
 
-Requirements: Node.js 20+, an installed copy of MiniMax Design, and Ollama.
+Requirements: Node.js 20+, an installed copy of MiniMax Design, and a locally hosted LLM endpoint.
 
 ```powershell
 Copy-Item config/local.example.json config/local.json
-npm run doctor -- --install-dir 'D:\AI\gongzuoliu\H3 design\MiniMax Design'
-npm run patch -- --install-dir 'D:\AI\gongzuoliu\H3 design\MiniMax Design' --model 'qwen3.8:latest'
-npm start -- --install-dir 'D:\AI\gongzuoliu\H3 design\MiniMax Design'
+npm run configure
+# Open http://127.0.0.1:17666 and choose endpoints/models/workflows.
+npm run doctor -- --install-dir '<MINIMAX_DESIGN_INSTALL_DIR>'
+npm run patch -- --install-dir '<MINIMAX_DESIGN_INSTALL_DIR>'
+npm start -- --install-dir '<MINIMAX_DESIGN_INSTALL_DIR>'
 ```
 
 Always start the app through `npm start`; launching the original shortcut does not start the local privacy gateway.
@@ -29,12 +31,12 @@ Always start the app through `npm start`; launching the original shortcut does n
 Restore the original installation:
 
 ```powershell
-npm run unpatch -- --install-dir 'D:\AI\gongzuoliu\H3 design\MiniMax Design'
+npm run unpatch -- --install-dir '<MINIMAX_DESIGN_INSTALL_DIR>'
 ```
 
 ## Privacy model
 
-The local bridge binds only to `127.0.0.1`. Unknown and unconfigured model routes are denied; they are never proxied to a remote service. Telemetry, update checks and account features are outside this overlay's model-routing scope and may still use their original non-model endpoints.
+The local bridge binds only to `127.0.0.1`. Model-service settings accept only loopback or RFC1918 private-network URLs. Unknown and unconfigured model routes are denied; they are never proxied to a remote service. Telemetry, update checks and account features are outside this overlay's model-routing scope and may still use their original non-model endpoints.
 
 ## Next stage
 

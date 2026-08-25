@@ -3,19 +3,23 @@
     "host": "127.0.0.1",
     "port": 17666
   },
-  "ollama": {
+  "llm": {
+    "providerId": "local",
+    "name": "Local LLM",
     "baseURL": "http://127.0.0.1:11434/v1",
-    "tagsURL": "http://127.0.0.1:11434/api/tags",
-    "model": "qwen3.8:latest"
+    "discoveryURL": "http://127.0.0.1:11434/api/tags",
+    "model": "local-model",
+    "context": 32768,
+    "output": 8192
   },
   "comfyui": {
     "baseURL": "http://127.0.0.1:8188"
   },
   "media": {
-    "image": { "enabled": false, "workflow": null },
-    "video": { "enabled": false, "workflow": null },
-    "speech": { "enabled": false, "workflow": null },
-    "music": { "enabled": false, "workflow": null }
+    "image": { "enabled": false, "model": "", "workflow": null, "inputMap": {}, "outputMap": {} },
+    "video": { "enabled": false, "model": "", "workflow": null, "inputMap": {}, "outputMap": {} },
+    "speech": { "enabled": false, "model": "", "workflow": null, "inputMap": {}, "outputMap": {} },
+    "music": { "enabled": false, "model": "", "workflow": null, "inputMap": {}, "outputMap": {} }
   },
   "privacy": {
     "blockUnknownRoutes": true,

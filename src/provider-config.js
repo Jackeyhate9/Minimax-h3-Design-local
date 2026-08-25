@@ -1,29 +1,31 @@
-export function ollamaProviderConfig(config) {
-  const model = config.ollama.model;
+export function localLLMProviderConfig(config) {
+  const llm = config.llm;
+  const model = llm.model || "local-model";
+  const providerId = llm.providerId || "local";
   return {
-    enabled_providers: ["ollama"],
-    model: `ollama/${model}`,
+    enabled_providers: [providerId],
+    model: `${providerId}/${model}`,
     provider: {
-      ollama: {
+      [providerId]: {
         npm: "@ai-sdk/openai-compatible",
-        name: "Ollama Local (H3 Local)",
-        options: { baseURL: config.ollama.baseURL },
+        name: llm.name || "Local LLM",
+        options: { baseURL: llm.baseURL },
         models: {
           [model]: {
             name: `${model} (Local)`,
-            limit: { context: 32768, output: 8192 }
+            limit: { context: llm.context || 32768, output: llm.output || 8192 }
           }
         }
       }
     },
     agent_model: {
-      "media-agent": `ollama/${model}`,
-      image: `ollama/${model}`,
-      video: `ollama/${model}`,
-      speech: `ollama/${model}`,
-      music: `ollama/${model}`,
-      editing: `ollama/${model}`,
-      "comfyui-agent": `ollama/${model}`
+      "media-agent": `${providerId}/${model}`,
+      image: `${providerId}/${model}`,
+      video: `${providerId}/${model}`,
+      speech: `${providerId}/${model}`,
+      music: `${providerId}/${model}`,
+      editing: `${providerId}/${model}`,
+      "comfyui-agent": `${providerId}/${model}`
     }
   };
 }
@@ -54,11 +56,15 @@ function mediaModel({ id, name, backend, type, tool, refs = 0, params = {} }) {
 }
 
 export function localModelCatalog(config) {
-  const textId = `ollama/${config.ollama.model}`;
+  const textId = `${config.llm.providerId}/${config.llm.model}`;
+  const imageName = config.media.image.model ? `Local Image · ${config.media.image.model}` : "Local ComfyUI Image";
+  const videoName = config.media.video.model ? `Local Video · ${config.media.video.model}` : "Local ComfyUI Video";
+  const speechName = config.media.speech.model ? `Local Speech · ${config.media.speech.model}` : "Local ComfyUI Speech";
+  const musicName = config.media.music.model ? `Local Music · ${config.media.music.model}` : "Local ComfyUI Music";
   return {
     imageModels: [mediaModel({
       id: "gpt-image-2",
-      name: "Local ComfyUI Image",
+      name: imageName,
       backend: "openai",
       type: "image",
       tool: "hub_generate_image",
@@ -70,7 +76,7 @@ export function localModelCatalog(config) {
     })],
     videoModels: [mediaModel({
       id: "wan2.6-i2v",
-      name: "Local ComfyUI Video",
+      name: videoName,
       backend: "wan_i2v",
       type: "video",
       tool: "hub_generate_video",
@@ -83,14 +89,14 @@ export function localModelCatalog(config) {
     audioModels: [
       mediaModel({
         id: "speech-2.8-hd",
-        name: "Local ComfyUI Speech",
+        name: speechName,
         backend: "minimax_tts",
         type: "audio",
         tool: "hub_generate_audio_speech"
       }),
       mediaModel({
         id: "music-2.0",
-        name: "Local ComfyUI Music",
+        name: musicName,
         backend: "minimax_music",
         type: "audio",
         tool: "hub_generate_audio_music"
@@ -98,8 +104,8 @@ export function localModelCatalog(config) {
     ],
     textModels: [{
       id: textId,
-      name: `${config.ollama.model} (Local)`,
-      provider: "ollama",
+      name: `${config.llm.model} (Local)`,
+      provider: config.llm.providerId,
       supportsVideo: false,
       supportsAudio: false
     }],
