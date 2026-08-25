@@ -5,6 +5,7 @@ import path from "node:path";
 import { localModelCatalog, localLLMProviderConfig } from "./provider-config.js";
 import { settingsPage } from "./settings-page.js";
 import { createMediaTaskRunner } from "./comfyui-adapter.js";
+import { createGpuScheduler } from "./gpu-scheduler.js";
 
 const MODEL_ROUTE = /^\/api\/(?:v\d+\/)?(?:image|video|audio|speech|music|tool|generate|models|super-resolution)(?:\/|$)/i;
 const CONFIG_ROUTES = new Set(["/api/v1/config", "/api/v1/models/config"]);
@@ -69,11 +70,32 @@ function proxyLocalLLMRequest(request, response, config) {
       response.writeHead(upstreamResponse.statusCode ?? 502, outputHeaders);
       upstreamResponse.pipe(response);
       upstreamResponse.once("end", resolve);
+      upstreamResponse.once("error", reject);
     });
     upstreamRequest.once("error", reject);
     request.once("aborted", () => upstreamRequest.destroy());
+    response.once("close", () => {
+      if (!response.writableEnded) upstreamRequest.destroy(new Error("Local LLM client disconnected."));
+    });
     request.pipe(upstreamRequest);
   });
+}
+
+async function unloadOllamaModel(config, logger) {
+  if (config.gpu?.unloadAfterTask === false || config.llm.unloadStrategy === "none") return;
+  const root = assertLocalServiceURL(config.llm.baseURL, "LLM Base URL").replace(/\/v1\/?$/i, "");
+  try {
+    const response = await fetch(`${root}/api/generate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: config.llm.model, keep_alive: 0 }),
+      signal: AbortSignal.timeout(30000)
+    });
+    if (!response.ok) logger.warn?.(`[h3-local] Ollama unload returned HTTP ${response.status}`);
+    else logger.log?.(`[h3-local] Ollama model unloaded: ${config.llm.model}`);
+  } catch (error) {
+    logger.warn?.(`[h3-local] Ollama unload failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 async function probe(url, timeoutMs = 2000) {
@@ -145,6 +167,7 @@ function sanitizeSettings(value) {
       baseURL: assertLocalServiceURL(String(llm.baseURL || ""), "LLM Base URL"),
       gatewayBaseURL: llm.gatewayBaseURL ? assertLocalServiceURL(String(llm.gatewayBaseURL), "LLM Gateway URL") : "",
       service: String(llm.service || "").trim().slice(0, 100),
+      unloadStrategy: llm.unloadStrategy === "none" ? "none" : "ollama",
       discoveryURL: llm.discoveryURL ? assertLocalServiceURL(String(llm.discoveryURL), "模型发现地址") : "",
       model: String(llm.model || "").trim().slice(0, 200),
       context: Math.max(2048, Math.min(1048576, Number(llm.context) || 32768)),
@@ -157,6 +180,7 @@ function sanitizeSettings(value) {
     allowNonModelCloud: value.network?.allowNonModelCloud === true,
     upstreamBaseURL: value.network?.upstreamBaseURL ? nonModelUpstreamBaseURL(value.network.upstreamBaseURL) : ""
   };
+  normalized.gpu = { mode: "serial", unloadAfterTask: value.gpu?.unloadAfterTask !== false };
   if (!normalized.llm.providerId || !normalized.llm.model) throw new Error("Provider ID 和默认模型 ID 不能为空。");
   for (const kind of ["image", "video", "speech", "music"]) {
     const entry = media[kind] ?? {};
@@ -228,7 +252,8 @@ function saveSettings(configPath, config) {
 }
 
 export function createLocalGateway(config, logger = console, options = {}) {
-  const mediaTasks = createMediaTaskRunner(config, logger, { serviceManager: options.serviceManager });
+  const gpuScheduler = options.gpuScheduler ?? createGpuScheduler(logger);
+  const mediaTasks = createMediaTaskRunner(config, logger, { serviceManager: options.serviceManager, gpuScheduler });
   const server = http.createServer(async (request, response) => {
     const host = request.headers.host ?? `${config.listen.host}:${config.listen.port}`;
     const url = new URL(request.url ?? "/", `http://${host}`);
@@ -274,7 +299,7 @@ export function createLocalGateway(config, logger = console, options = {}) {
     }
 
     if (pathname === "/health" || pathname === "/api/health" || pathname === "/api/health/live") {
-      sendJSON(response, 200, { ok: true, service: "minimax-h3-design-local", local_only: true });
+      sendJSON(response, 200, { ok: true, service: "minimax-h3-design-local", local_only: true, gpu: gpuScheduler.status() });
       return;
     }
     if (pathname === "/doctor") {
@@ -291,8 +316,14 @@ export function createLocalGateway(config, logger = console, options = {}) {
     }
     if (/^\/v1(?:\/|$)/.test(pathname)) {
       try {
-        if (config.llm.service) await options.serviceManager?.ensure(config.llm.service);
-        await proxyLocalLLMRequest(request, response, config);
+        await gpuScheduler.run("llm", async () => {
+          if (config.llm.service) await options.serviceManager?.ensure(config.llm.service);
+          try {
+            await proxyLocalLLMRequest(request, response, config);
+          } finally {
+            await unloadOllamaModel(config, logger);
+          }
+        });
       } catch (error) {
         if (!response.headersSent) sendJSON(response, 502, { error: { type: "local_llm_error", message: error instanceof Error ? error.message : String(error) }, local_only: true });
         else response.destroy(error instanceof Error ? error : undefined);

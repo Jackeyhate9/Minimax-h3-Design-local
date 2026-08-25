@@ -159,6 +159,21 @@ export async function runComfyUIWorkflow({ profile, fallbackBaseURL, body, outpu
   throw new Error(`ComfyUI workflow timed out after ${profile.timeoutSeconds || 900} seconds.`);
 }
 
+async function releaseComfyUIMemory(profile, fallbackBaseURL, logger) {
+  const baseURL = localBaseURL(profile.baseURL || fallbackBaseURL);
+  try {
+    const response = await localRequest(`${baseURL}/free`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ unload_models: true, free_memory: true })
+    });
+    if (!response.ok) logger.warn?.(`[h3-local] ComfyUI VRAM release returned HTTP ${response.status}`);
+    else logger.log?.(`[h3-local] ComfyUI VRAM released: ${baseURL}`);
+  } catch (error) {
+    logger.warn?.(`[h3-local] ComfyUI VRAM release failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 export function createMediaTaskRunner(config, logger = console, options = {}) {
   const tasks = new Map();
   const outputDir = config.storage?.outputDir || path.join(process.cwd(), "runtime", "outputs");
@@ -172,9 +187,15 @@ export function createMediaTaskRunner(config, logger = console, options = {}) {
       }
       const taskId = crypto.randomUUID();
       tasks.set(taskId, { ok: true, task_id: taskId, status: "processing" });
-      Promise.resolve()
-        .then(() => profile.service ? options.serviceManager?.ensure(profile.service) : undefined)
-        .then(() => runComfyUIWorkflow({ profile, fallbackBaseURL: config.comfyui.baseURL, body, outputDir }))
+      const run = options.gpuScheduler?.run?.bind(options.gpuScheduler) ?? ((_label, task) => task());
+      run(kind, async () => {
+        if (profile.service) await options.serviceManager?.ensure(profile.service);
+        try {
+          return await runComfyUIWorkflow({ profile, fallbackBaseURL: config.comfyui.baseURL, body, outputDir });
+        } finally {
+          if (config.gpu?.unloadAfterTask !== false) await releaseComfyUIMemory(profile, config.comfyui.baseURL, logger);
+        }
+      })
         .then((result) => tasks.set(taskId, { ok: true, task_id: taskId, status: "succeeded", result }))
         .catch((error) => {
           logger.error(`[h3-local] ${kind} task ${taskId} failed: ${error.message}`);

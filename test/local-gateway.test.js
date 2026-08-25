@@ -27,7 +27,13 @@ test("serves local Ollama provider config and never cloud fallback", async () =>
 });
 
 test("starts the configured LLM service only when the local OpenAI route is called", async (t) => {
-  const upstream = http.createServer((request, response) => {
+  let unloadBody = null;
+  const upstream = http.createServer(async (request, response) => {
+    if (request.url === "/api/generate") {
+      const chunks = [];
+      for await (const chunk of request) chunks.push(chunk);
+      unloadBody = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    }
     response.writeHead(200, { "content-type": "application/json" });
     response.end(JSON.stringify({ path: request.url }));
   });
@@ -48,6 +54,8 @@ test("starts the configured LLM service only when the local OpenAI route is call
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { path: "/v1/models" });
   assert.deepEqual(calls, ["ollama"]);
+  for (let attempt = 0; attempt < 20 && !unloadBody; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.deepEqual(unloadBody, { model: config.llm.model, keep_alive: 0 });
 });
 
 test("blocks an unconfigured media route locally", async () => {

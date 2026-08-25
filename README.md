@@ -13,6 +13,7 @@ This repository does **not** redistribute MiniMax Design, its binaries, `app.asa
 - Supports separate ComfyUI endpoints per media kind and automatic text-to-image versus reference-edit workflow selection.
 - Blocks every unconfigured media route locally. There is no cloud fallback.
 - Re-checks the patch on every launch and automatically reapplies it, with a new backup, when an app update replaces patched files.
+- Serializes LLM, image and video GPU work through one global slot, then asks Ollama or ComfyUI to unload model weights and free VRAM after every success or failure.
 
 ## Quick start (Windows)
 
@@ -29,6 +30,8 @@ npm start -- --install-dir '<MINIMAX_DESIGN_INSTALL_DIR>'
 The first `npm start` patches automatically. Always start through this launcher; the original shortcut does not start the local privacy gateway.
 
 On the configured Windows machine, the desktop `H3 Design Local.exe` runs `scripts/start-minimax-design-local.ps1` and opens the app. Model services marked with `startup: "lazy"` stay off until their first matching request: LLM starts Ollama, image starts the image ComfyUI instance, and video starts the H3 ComfyUI instance. Services started by this session are stopped when Design closes. `H3 Design Local.cmd` remains a troubleshooting fallback. Logs are written to `runtime/logs/desktop-launch.log`.
+
+GPU work is serial by default (`gpu.mode: "serial"`). With `gpu.unloadAfterTask: true`, Ollama receives `keep_alive: 0` and ComfyUI receives `/free` with `unload_models` and `free_memory` after each task. This minimizes retained VRAM at the cost of reloading weights for every new task.
 
 Restore the original installation:
 

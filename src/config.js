@@ -11,6 +11,7 @@ export function defaultConfig() {
   return {
     listen: { host: "127.0.0.1", port: 17666 },
     network: { allowNonModelCloud: false, upstreamBaseURL: "" },
+    gpu: { mode: "serial", unloadAfterTask: true },
     services: [],
     llm: {
       providerId: "local",
@@ -18,6 +19,7 @@ export function defaultConfig() {
       baseURL: "http://127.0.0.1:11434/v1",
       gatewayBaseURL: "",
       service: "",
+      unloadStrategy: "ollama",
       discoveryURL: "http://127.0.0.1:11434/api/tags",
       model: "local-model",
       context: 32768,
