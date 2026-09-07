@@ -8,7 +8,7 @@ Set-Location -LiteralPath $repo
 
 try {
   $node = (Get-Command node -ErrorAction Stop).Source
-  $exitCode = Invoke-NativeLogged -FilePath $node -ArgumentList @("src\cli.js", "start", "--config", "config\local.json", "--install-dir", "D:\AI\gongzuoliu\H3 design\MiniMax Design") -LogFile $logFile
+  $exitCode = Invoke-NativeLogged -FilePath $node -ArgumentList @("src\cli.js", "start", "--config", "config\local.json", "--install-dir", "D:\AI\gongzuoliu\MiniMax Design") -LogFile $logFile
   if ($exitCode -ne 0) { throw "Local launcher exited with code $exitCode" }
 } catch {
   Add-Type -AssemblyName PresentationFramework

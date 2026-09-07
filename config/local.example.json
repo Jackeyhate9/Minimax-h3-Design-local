@@ -28,7 +28,7 @@
     "baseURL": "http://127.0.0.1:8188"
   },
   "media": {
-    "image": { "enabled": false, "adapter": "comfyui", "service": "", "baseURL": "", "model": "", "workflow": null, "timeoutSeconds": 900, "inputMap": {}, "outputMap": {} },
+    "image": { "enabled": false, "adapter": "comfyui", "service": "", "baseURL": "", "model": "", "workflow": null, "timeoutSeconds": 900, "inputMap": {}, "outputMap": {}, "cli": { "enabled": false, "command": "", "args": [], "env": {}, "pathPrepend": "", "referenceFlag": "", "timeoutSeconds": 900, "outputExtension": ".png" } },
     "video": { "enabled": false, "adapter": "comfyui", "service": "", "baseURL": "", "model": "", "workflow": null, "timeoutSeconds": 3600, "inputMap": {}, "outputMap": {} },
     "speech": { "enabled": false, "adapter": "comfyui", "baseURL": "", "model": "", "workflow": null, "timeoutSeconds": 900, "inputMap": {}, "outputMap": {} },
     "music": { "enabled": false, "adapter": "comfyui", "baseURL": "", "model": "", "workflow": null, "timeoutSeconds": 1800, "inputMap": {}, "outputMap": {} }

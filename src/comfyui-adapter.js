@@ -3,6 +3,7 @@ import http from "node:http";
 import https from "node:https";
 import path from "node:path";
 import crypto from "node:crypto";
+import { runCommandImage } from "./command-image-adapter.js";
 
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
@@ -176,26 +177,65 @@ async function releaseComfyUIMemory(profile, fallbackBaseURL, logger) {
 
 export function createMediaTaskRunner(config, logger = console, options = {}) {
   const tasks = new Map();
+  const idempotency = new Map();
   const outputDir = config.storage?.outputDir || path.join(process.cwd(), "runtime", "outputs");
+  const commandImage = options.commandImageRunner ?? runCommandImage;
+  const comfyui = options.comfyuiRunner ?? runComfyUIWorkflow;
+  function assertSafeVideoDuration(kind, body, profile) {
+    if (kind !== "video") return;
+    const requested = Number(body?.params?.duration ?? body?.duration ?? 8);
+    const maximum = Number(profile?.maxDurationSeconds ?? 15);
+    if (!Number.isFinite(requested) || requested < 5 || requested > maximum) {
+      const error = new Error(`Local H3 video duration must be between 5 and ${maximum} seconds to protect available VRAM.`);
+      error.code = "H3_VIDEO_DURATION_OUT_OF_RANGE";
+      throw error;
+    }
+  }
   return {
     submit(kind, body) {
       const profile = config.media?.[kind];
-      if (!profile?.enabled || profile.adapter !== "comfyui" || !profile.workflow) {
+      const cliEnabled = kind === "image" && profile?.cli?.enabled === true;
+      const comfyuiEnabled = profile?.adapter === "comfyui" && Boolean(profile?.workflow);
+      if (!profile?.enabled || (!cliEnabled && !comfyuiEnabled)) {
         const error = new Error(`Local ${kind} workflow is not enabled or configured.`);
         error.code = "H3_LOCAL_BACKEND_NOT_CONFIGURED";
         throw error;
       }
+      assertSafeVideoDuration(kind, body, profile);
+      const key = typeof body?.idempotency_key === "string" && body.idempotency_key ? body.idempotency_key : null;
+      const requestHash = crypto.createHash("sha256").update(JSON.stringify({ kind, body })).digest("hex");
+      if (key && idempotency.has(key)) {
+        const existing = idempotency.get(key);
+        if (existing.requestHash !== requestHash) {
+          const error = new Error("Idempotency key was reused with a different media request.");
+          error.code = "H3_IDEMPOTENCY_CONFLICT";
+          throw error;
+        }
+        return { ok: true, task_id: existing.taskId, status: tasks.get(existing.taskId)?.status || "processing", media_type: kind };
+      }
       const taskId = crypto.randomUUID();
       tasks.set(taskId, { ok: true, task_id: taskId, status: "processing" });
+      if (key) idempotency.set(key, { requestHash, taskId });
       const run = options.gpuScheduler?.run?.bind(options.gpuScheduler) ?? ((_label, task) => task());
-      run(kind, async () => {
-        if (profile.service) await options.serviceManager?.ensure(profile.service);
-        try {
-          return await runComfyUIWorkflow({ profile, fallbackBaseURL: config.comfyui.baseURL, body, outputDir });
-        } finally {
-          if (config.gpu?.unloadAfterTask !== false) await releaseComfyUIMemory(profile, config.comfyui.baseURL, logger);
+      const execute = async () => {
+        if (cliEnabled) {
+          try {
+            return await commandImage({ profile, body, outputDir });
+          } catch (error) {
+            logger.warn?.(`[h3-local] image CLI failed, falling back to ComfyUI: ${error instanceof Error ? error.message : String(error)}`);
+            if (!comfyuiEnabled) throw error;
+          }
         }
-      })
+        return run(kind, async () => {
+          if (profile.service) await options.serviceManager?.ensure(profile.service);
+          try {
+            return await comfyui({ profile, fallbackBaseURL: config.comfyui.baseURL, body, outputDir });
+          } finally {
+            if (config.gpu?.unloadAfterTask !== false) await releaseComfyUIMemory(profile, config.comfyui.baseURL, logger);
+          }
+        });
+      };
+      execute()
         .then((result) => tasks.set(taskId, { ok: true, task_id: taskId, status: "succeeded", result }))
         .catch((error) => {
           logger.error(`[h3-local] ${kind} task ${taskId} failed: ${error.message}`);

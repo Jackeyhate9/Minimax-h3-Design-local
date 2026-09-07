@@ -23,6 +23,8 @@
 
 图片配置可额外提供 `editWorkflow` 与 `editInputMap`。请求包含 `image_paths` 时自动使用编辑工作流，否则使用文生图工作流。
 
+图片还可配置 `media.image.cli` 作为第一优先级。参数模板支持 `{prompt}`、`{output}`、`{outputDir}`、`{size}`、`{aspectRatio}`；`referenceFlag` 会为每张参考图重复追加。工作站配置使用 `chatgpt-imagegen --backend web`，只走已登录的 ChatGPT 浏览器，不会静默切换到 Codex/API；网页桥接失败后才启动本地图片 ComfyUI。
+
 ## 启动与更新
 
 ```powershell

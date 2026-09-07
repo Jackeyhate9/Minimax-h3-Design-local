@@ -9,7 +9,7 @@ This repository does **not** redistribute MiniMax Design, its binaries, `app.asa
 - Preserves the original canvas, asset vault, project UI, bundled Skills and ComfyUI plugin.
 - Redirects OpenCode/agent LLM traffic to a user-selected local OpenAI-compatible or Ollama endpoint.
 - Redirects MiniMax model-gateway traffic to a loopback-only bridge.
-- Implements the app's async media submit/query contract and runs user-supplied ComfyUI API workflows.
+- Implements the app's async media submit/query contract, including a user-configured image CLI primary and ComfyUI fallback.
 - Supports separate ComfyUI endpoints per media kind and automatic text-to-image versus reference-edit workflow selection.
 - Blocks every unconfigured media route locally. There is no cloud fallback.
 - Re-checks the patch on every launch and automatically reapplies it, with a new backup, when an app update replaces patched files.
@@ -29,7 +29,7 @@ npm start -- --install-dir '<MINIMAX_DESIGN_INSTALL_DIR>'
 
 The first `npm start` patches automatically. Always start through this launcher; the original shortcut does not start the local privacy gateway.
 
-On the configured Windows machine, the desktop `H3 Design Local.exe` runs `scripts/start-minimax-design-local.ps1` and opens the app. Model services marked with `startup: "lazy"` stay off until their first matching request: LLM starts Ollama, image starts the image ComfyUI instance, and video starts the H3 ComfyUI instance. Services started by this session are stopped when Design closes. `H3 Design Local.cmd` remains a troubleshooting fallback. Logs are written to `runtime/logs/desktop-launch.log`.
+On the configured Windows machine, the desktop `H3 Design Local.exe` runs `scripts/start-minimax-design-local.ps1` and opens the app. Model services marked with `startup: "lazy"` stay off until their first matching request: LLM starts Ollama, the image CLI runs without acquiring the GPU, image ComfyUI starts only on fallback, and video starts the H3 ComfyUI instance. Services started by this session are stopped when Design closes. `H3 Design Local.cmd` remains a troubleshooting fallback. Logs are written to `runtime/logs/desktop-launch.log`.
 
 GPU work is serial by default (`gpu.mode: "serial"`). With `gpu.unloadAfterTask: true`, Ollama receives `keep_alive: 0` and ComfyUI receives `/free` with `unload_models` and `free_memory` after each task. This minimizes retained VRAM at the cost of reloading weights for every new task.
 
@@ -43,7 +43,9 @@ npm run unpatch -- --install-dir '<MINIMAX_DESIGN_INSTALL_DIR>'
 
 The local bridge binds only to `127.0.0.1`. Model-service settings accept only loopback or RFC1918 private-network URLs. Unknown and unconfigured model routes are denied; they are never proxied to a remote service. Telemetry, update checks and account features are outside this overlay's model-routing scope and may still use their original non-model endpoints.
 
-The tested local profile uses Krea2 Turbo INT8 for text-to-image, MageFlow Edit Turbo INT8 for identity-preserving edits, and MiniMax H3 FL2V Turbo v1.1 768p for first/last-frame video. Repository defaults remain disabled and machine-neutral. Speech and music stay unavailable until the user supplies compatible ComfyUI API workflows; they never fall back to cloud services.
+The tested workstation profile routes GPT Image 2 through the user's logged-in ChatGPT browser first, then uses Krea2 Turbo INT8 or MageFlow Edit Turbo INT8 only when the web CLI fails. MiniMax H3 FL2V Turbo v1.1 768p handles first/last-frame video locally. Repository defaults remain disabled and machine-neutral. Speech and music stay unavailable until the user supplies compatible ComfyUI API workflows; they never fall back to cloud services.
+
+For a 24 GB GPU, the active text profile uses `h3-qwen3.8rvn:27b-q4-32k`, created from the installed `Qwen3.8Rvn:latest` weights with [config/ollama/H3-Qwen3.8Rvn.Modelfile](config/ollama/H3-Qwen3.8Rvn.Modelfile). The 32K context cap reduces measured loaded VRAM from about 20.76 GB to 17.03 GB while preserving Ollama tool calls. Users can select a different installed model from the settings page at any time.
 
 ## Trademark
 

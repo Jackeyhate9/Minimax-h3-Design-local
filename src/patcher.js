@@ -12,6 +12,9 @@ const GETTER_PATCH = "get() {\n      if (h3LocalGatewayBaseUrl) return h3LocalGa
 const TEXT_MODELS_ANCHOR = "var TEXT_MODELS = [";
 const TEXT_MODEL_START = "/* H3_LOCAL_TEXT_MODEL_START */";
 const TEXT_MODEL_END = "/* H3_LOCAL_TEXT_MODEL_END */";
+const MCP_ALLOWLIST_MARKER = "/* H3_LOCAL_MCP_TOOL_ALLOWLIST_V1 */";
+const MCP_REGISTRAR_ANCHOR = "const originalRegisterTool = server2.registerTool.bind(server2);";
+const MCP_REGISTRAR_PATCH = `${MCP_REGISTRAR_ANCHOR}\n  ${MCP_ALLOWLIST_MARKER}\n  const h3LocalToolAllowlist = new Set((process.env.HILO_MCP_TOOL_ALLOWLIST ?? \"\").split(\",\").map((name) => name.trim()).filter(Boolean));\n  const h3LocalToolAllowed = (name) => h3LocalToolAllowlist.size === 0 || h3LocalToolAllowlist.has(name);`;
 
 function sha256(data) {
   return crypto.createHash("sha256").update(data).digest("hex");
@@ -75,6 +78,26 @@ function patchGateway(file, config) {
   return true;
 }
 
+function patchedMcpToolsSource(source) {
+  if (source.includes(MCP_ALLOWLIST_MARKER)) return source;
+  if (!source.includes(MCP_REGISTRAR_ANCHOR)) {
+    throw new Error("Unsupported mcp-tools build: tool registrar anchor was not found. No file was changed.");
+  }
+  const registrationAnchor = "registerTool(name, config2, cb) {";
+  const at = source.indexOf(registrationAnchor, source.indexOf(MCP_REGISTRAR_ANCHOR));
+  if (at < 0) {
+    throw new Error("Unsupported mcp-tools build: tool registration anchor was not found. No file was changed.");
+  }
+  const insertAt = at + registrationAnchor.length;
+  return `${source.slice(0, at).replace(MCP_REGISTRAR_ANCHOR, MCP_REGISTRAR_PATCH)}${source.slice(at, insertAt)}\n      if (!h3LocalToolAllowed(name)) return { name };${source.slice(insertAt)}`;
+}
+
+function patchMcpTools(file) {
+  const source = fs.readFileSync(file, "utf8");
+  const patched = patchedMcpToolsSource(source);
+  if (patched !== source) writeAtomic(file, patched);
+}
+
 function patchOpenCodeConfig(file, config) {
   const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
   const local = localLLMProviderConfig(config);
@@ -90,25 +113,30 @@ function patchOpenCodeConfig(file, config) {
 
 export function inspectInstall(installDir) {
   const paths = installPaths(installDir);
-  const required = [paths.gatewayMain, ...paths.baseConfigs];
+  const required = [paths.gatewayMain, paths.mcpToolsMain, ...paths.baseConfigs];
   return {
     paths,
     required: required.map((file) => ({ file, exists: fs.existsSync(file) })),
-    patched: fs.existsSync(paths.gatewayMain) && fs.readFileSync(paths.gatewayMain, "utf8").includes(PATCH_MARKER) && fs.readFileSync(paths.gatewayMain, "utf8").includes(TEXT_MODEL_START)
+    patched: fs.existsSync(paths.gatewayMain) && fs.existsSync(paths.mcpToolsMain)
+      && fs.readFileSync(paths.gatewayMain, "utf8").includes(PATCH_MARKER)
+      && fs.readFileSync(paths.gatewayMain, "utf8").includes(TEXT_MODEL_START)
+      && fs.readFileSync(paths.mcpToolsMain, "utf8").includes(MCP_ALLOWLIST_MARKER)
   };
 }
 
 export function patchInstall(installDir, config) {
   const paths = installPaths(installDir);
-  const files = [paths.gatewayMain, ...paths.baseConfigs];
+  const files = [paths.gatewayMain, paths.mcpToolsMain, ...paths.baseConfigs];
   files.forEach(mustExist);
   const gatewaySource = fs.readFileSync(paths.gatewayMain, "utf8");
-  if (patchedGatewaySource(gatewaySource, config) === gatewaySource) {
+  const mcpSource = fs.readFileSync(paths.mcpToolsMain, "utf8");
+  if (patchedGatewaySource(gatewaySource, config) === gatewaySource && patchedMcpToolsSource(mcpSource) === mcpSource) {
     return { changed: false, message: "Installation is already patched.", paths };
   }
   const backupDir = backupFiles(files, paths.backupRoot);
   try {
     patchGateway(paths.gatewayMain, config);
+    patchMcpTools(paths.mcpToolsMain);
     paths.baseConfigs.forEach((file) => patchOpenCodeConfig(file, config));
   } catch (error) {
     restoreManifest(path.join(backupDir, "manifest.json"));

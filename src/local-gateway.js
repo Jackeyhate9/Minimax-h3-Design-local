@@ -2,11 +2,13 @@ import http from "node:http";
 import https from "node:https";
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 import { localModelCatalog, localLLMProviderConfig } from "./provider-config.js";
 import { settingsPage } from "./settings-page.js";
 import { createMediaTaskRunner } from "./comfyui-adapter.js";
 import { createGpuScheduler } from "./gpu-scheduler.js";
 import { createTextTaskRunner, unloadLocalLLM } from "./text-adapter.js";
+import { formatH3Query, formatH3Submit, matchH3MediaRoute, mediaContentType, normalizeH3MediaBody } from "./h3-media-compat.js";
 
 const MODEL_ROUTE = /^\/api\/(?:v\d+\/)?(?:image|video|audio|speech|music|tool|generate|models|super-resolution)(?:\/|$)/i;
 const CONFIG_ROUTES = new Set(["/api/v1/config", "/api/v1/models/config"]);
@@ -19,6 +21,29 @@ function sendJSON(response, status, body) {
     "cache-control": "no-store"
   });
   response.end(payload);
+}
+
+function sendFile(response, file) {
+  const stat = fs.statSync(file);
+  response.writeHead(200, {
+    "content-type": mediaContentType(file),
+    "content-length": String(stat.size),
+    "cache-control": "no-store"
+  });
+  fs.createReadStream(file).pipe(response);
+}
+
+function persistDataURI(value, directory) {
+  const match = String(value || "").match(/^data:([^;,]+)?;base64,([a-zA-Z0-9+/=\r\n]+)$/);
+  if (!match) throw new Error("Local media upload must be a base64 data URI.");
+  const bytes = Buffer.from(match[2], "base64");
+  if (!bytes.length || bytes.length > 50 * 1024 * 1024) throw new Error("Local media upload is empty or exceeds 50 MB.");
+  const extension = ({ "image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "audio/mpeg": ".mp3", "audio/wav": ".wav", "video/mp4": ".mp4" })[match[1]] || ".bin";
+  fs.mkdirSync(directory, { recursive: true });
+  const id = crypto.randomUUID();
+  const file = path.join(directory, `${id}${extension}`);
+  fs.writeFileSync(file, bytes);
+  return { id, file };
 }
 
 function nonModelUpstreamBaseURL(value) {
@@ -168,9 +193,15 @@ function sanitizeSettings(value) {
   if (!normalized.llm.providerId || !normalized.llm.model) throw new Error("Provider ID 和默认模型 ID 不能为空。");
   for (const kind of ["image", "video", "speech", "music"]) {
     const entry = media[kind] ?? {};
+    const cli = entry.cli && typeof entry.cli === "object" && !Array.isArray(entry.cli) ? entry.cli : {};
+    const cliEnabled = kind === "image" && cli.enabled === true;
+    const cliCommand = cli.command ? path.resolve(String(cli.command)) : "";
+    const cliPathPrepend = cli.pathPrepend ? path.resolve(String(cli.pathPrepend)) : "";
     const workflow = entry.workflow ? path.resolve(String(entry.workflow)) : null;
     const editWorkflow = entry.editWorkflow ? path.resolve(String(entry.editWorkflow)) : null;
-    if (entry.enabled && (!workflow || !fs.existsSync(workflow))) throw new Error(`${kind} 已启用，但 workflow 文件不存在。`);
+    if (cliEnabled && (!cliCommand || !fs.existsSync(cliCommand))) throw new Error(`image CLI 可执行文件不存在。`);
+    if (cliEnabled && cliPathPrepend && !fs.existsSync(cliPathPrepend)) throw new Error(`image CLI PATH 前置目录不存在。`);
+    if (entry.enabled && !cliEnabled && (!workflow || !fs.existsSync(workflow))) throw new Error(`${kind} 已启用，但 workflow 文件不存在。`);
     if (editWorkflow && !fs.existsSync(editWorkflow)) throw new Error(`${kind} editWorkflow 文件不存在。`);
     const inputMap = entry.inputMap && typeof entry.inputMap === "object" && !Array.isArray(entry.inputMap) ? entry.inputMap : {};
     const editInputMap = entry.editInputMap && typeof entry.editInputMap === "object" && !Array.isArray(entry.editInputMap) ? entry.editInputMap : {};
@@ -184,9 +215,22 @@ function sanitizeSettings(value) {
       workflow,
       editWorkflow,
       timeoutSeconds: Math.max(30, Math.min(21600, Number(entry.timeoutSeconds) || (kind === "video" ? 3600 : 900))),
+      ...(kind === "video" ? { maxDurationSeconds: Math.max(5, Math.min(15, Number(entry.maxDurationSeconds) || 15)) } : {}),
       inputMap,
       editInputMap,
-      outputMap
+      outputMap,
+      ...(kind === "image" ? { cli: {
+        enabled: cliEnabled,
+        command: cliCommand,
+        args: Array.isArray(cli.args) ? cli.args.map((value) => String(value)).slice(0, 64) : [],
+        env: cli.env && typeof cli.env === "object" && !Array.isArray(cli.env)
+          ? Object.fromEntries(Object.entries(cli.env).slice(0, 32).map(([key, value]) => [String(key).slice(0, 100), String(value).slice(0, 4000)]))
+          : {},
+        pathPrepend: cliPathPrepend,
+        referenceFlag: typeof cli.referenceFlag === "string" ? cli.referenceFlag.trim().slice(0, 20) : "",
+        timeoutSeconds: Math.max(30, Math.min(3600, Number(cli.timeoutSeconds) || 900)),
+        outputExtension: /^\.[a-zA-Z0-9]{2,5}$/.test(String(cli.outputExtension || "")) ? String(cli.outputExtension) : ".png"
+      } } : {})
     };
   }
   normalized.privacy = { blockUnknownRoutes: true, allowCloudFallback: false };
@@ -237,12 +281,15 @@ function saveSettings(configPath, config) {
 
 export function createLocalGateway(config, logger = console, options = {}) {
   const gpuScheduler = options.gpuScheduler ?? createGpuScheduler(logger);
-  const mediaTasks = createMediaTaskRunner(config, logger, { serviceManager: options.serviceManager, gpuScheduler });
+  const mediaTasks = options.mediaTasks ?? createMediaTaskRunner(config, logger, { serviceManager: options.serviceManager, gpuScheduler });
   const textTasks = createTextTaskRunner(config, logger, { serviceManager: options.serviceManager, gpuScheduler });
+  const uploads = new Map();
+  const inputDir = path.join(path.dirname(config.storage?.outputDir || path.join(process.cwd(), "runtime", "outputs")), "inputs");
   const server = http.createServer(async (request, response) => {
     const host = request.headers.host ?? `${config.listen.host}:${config.listen.port}`;
     const url = new URL(request.url ?? "/", `http://${host}`);
     const pathname = url.pathname;
+    const localBaseURL = `http://127.0.0.1:${server.address()?.port || config.listen.port}`;
 
     if (pathname === "/" && request.method === "GET") {
       const payload = settingsPage();
@@ -299,6 +346,44 @@ export function createLocalGateway(config, logger = console, options = {}) {
       sendJSON(response, 200, localModelCatalog(config));
       return;
     }
+    if (pathname === "/api/v1/models/concurrency/limits" && request.method === "GET") {
+      const catalog = localModelCatalog(config);
+      const models = [...catalog.imageModels, ...catalog.videoModels, ...catalog.audioModels];
+      sendJSON(response, 200, { items: models.map(({ id }) => ({ model: id, total_concurrency: 1 })) });
+      return;
+    }
+    if (pathname === "/api/v1/models/concurrency/usage" && request.method === "POST") {
+      const body = await readBody(request).catch(() => ({}));
+      const models = Array.isArray(body?.models) ? body.models.filter((model) => typeof model === "string") : [];
+      sendJSON(response, 200, { items: models.map((model) => ({ model, used_concurrency: 0 })) });
+      return;
+    }
+    if (pathname === "/api/v1/files/upload" && request.method === "POST") {
+      try {
+        const body = await readBody(request, 70 * 1024 * 1024);
+        const saved = persistDataURI(body.file_data, inputDir);
+        uploads.set(saved.id, saved.file);
+        sendJSON(response, 200, { url: `${localBaseURL}/api/local/uploads/${saved.id}` });
+      } catch (error) {
+        sendJSON(response, 400, { error: { code: "H3_LOCAL_UPLOAD_INVALID", message: error instanceof Error ? error.message : String(error) }, local_only: true });
+      }
+      return;
+    }
+    const uploadMatch = pathname.match(/^\/api\/local\/uploads\/([^/]+)$/);
+    if (uploadMatch && request.method === "GET") {
+      const file = uploads.get(decodeURIComponent(uploadMatch[1]));
+      if (!file || !fs.existsSync(file)) sendJSON(response, 404, { error: { code: "H3_LOCAL_UPLOAD_NOT_FOUND", message: "Local upload not found." } });
+      else sendFile(response, file);
+      return;
+    }
+    const localMediaMatch = pathname.match(/^\/api\/local\/media\/([^/]+)$/);
+    if (localMediaMatch && request.method === "GET") {
+      const task = mediaTasks.query(decodeURIComponent(localMediaMatch[1]));
+      const file = task?.status === "succeeded" ? task.result?.path : null;
+      if (!file || !fs.existsSync(file)) sendJSON(response, 404, { error: { code: "H3_LOCAL_MEDIA_NOT_FOUND", message: "Local generated media not found." } });
+      else sendFile(response, file);
+      return;
+    }
     if (/^\/v1(?:\/|$)/.test(pathname)) {
       try {
         await gpuScheduler.run("llm", async () => {
@@ -348,6 +433,50 @@ export function createLocalGateway(config, logger = console, options = {}) {
     if (taskMatch && request.method === "GET") {
       const task = mediaTasks.query(decodeURIComponent(taskMatch[1]));
       sendJSON(response, task ? 200 : 404, task ?? { ok: false, error: "Local generation task not found." });
+      return;
+    }
+    const compatibilityRoute = matchH3MediaRoute(pathname, request.method);
+    if (compatibilityRoute) {
+      try {
+        if (compatibilityRoute.action === "file") {
+          const task = mediaTasks.query(decodeURIComponent(compatibilityRoute.taskId));
+          if (!task || task.status !== "succeeded") {
+            sendJSON(response, 404, { file: null, error: { code: "H3_LOCAL_FILE_NOT_READY", message: "Local video file is not ready." } });
+          } else {
+            sendJSON(response, 200, { file: { download_url: `${localBaseURL}/api/local/media/${encodeURIComponent(compatibilityRoute.taskId)}` } });
+          }
+          return;
+        }
+        if (compatibilityRoute.action === "submit") {
+          const resolveUpload = (value) => {
+            if (!value) return value;
+            if (String(value).startsWith("data:")) {
+              const saved = persistDataURI(value, inputDir);
+              uploads.set(saved.id, saved.file);
+              return saved.file;
+            }
+            try {
+              const ref = new URL(String(value));
+              const match = ref.pathname.match(/^\/api\/local\/uploads\/([^/]+)$/);
+              if (match && ["127.0.0.1", "localhost", "::1"].includes(ref.hostname)) return uploads.get(decodeURIComponent(match[1])) || value;
+            } catch {}
+            return value;
+          };
+          const body = normalizeH3MediaBody(compatibilityRoute, await readBody(request, 70 * 1024 * 1024), resolveUpload);
+          const task = mediaTasks.submit(compatibilityRoute.kind, body);
+          sendJSON(response, 200, formatH3Submit(compatibilityRoute, task));
+        } else {
+          const task = mediaTasks.query(decodeURIComponent(compatibilityRoute.taskId));
+          if (!task) sendJSON(response, 404, formatH3Query(compatibilityRoute, { status: "failed", error_code: "H3_LOCAL_TASK_NOT_FOUND", error: "Local generation task not found." }, ""));
+          else sendJSON(response, 200, formatH3Query(compatibilityRoute, task, `${localBaseURL}/api/local/media/${encodeURIComponent(compatibilityRoute.taskId)}`));
+        }
+      } catch (error) {
+        const conflict = error?.code === "H3_IDEMPOTENCY_CONFLICT";
+        sendJSON(response, conflict ? 409 : 503, {
+          error: { code: error?.code || "H3_LOCAL_BACKEND_ERROR", message: error instanceof Error ? error.message : String(error) },
+          local_only: true
+        });
+      }
       return;
     }
     if (MODEL_ROUTE.test(pathname) || CONFIG_ROUTES.has(pathname)) {

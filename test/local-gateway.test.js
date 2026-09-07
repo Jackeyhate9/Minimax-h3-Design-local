@@ -116,6 +116,41 @@ test("blocks an unconfigured media route locally", async () => {
   }
 });
 
+test("serves local media concurrency limits without a cloud lookup", async () => {
+  const config = defaultConfig();
+  config.listen.port = 0;
+  config.media.image.enabled = true;
+  config.media.video.enabled = true;
+  const gateway = createLocalGateway(config, { log() {}, warn() {} }, { configPath: "unused.json" });
+  await gateway.listen();
+  const address = gateway.server.address();
+  try {
+    const limitsResponse = await fetch(`http://127.0.0.1:${address.port}/api/v1/models/concurrency/limits`);
+    assert.equal(limitsResponse.status, 200);
+    assert.deepEqual(await limitsResponse.json(), {
+      items: [
+        { model: "gpt-image-2", total_concurrency: 1 },
+        { model: "wan2.6-i2v", total_concurrency: 1 }
+      ]
+    });
+
+    const usageResponse = await fetch(`http://127.0.0.1:${address.port}/api/v1/models/concurrency/usage`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ models: ["gpt-image-2", "wan2.6-i2v"] })
+    });
+    assert.equal(usageResponse.status, 200);
+    assert.deepEqual(await usageResponse.json(), {
+      items: [
+        { model: "gpt-image-2", used_concurrency: 0 },
+        { model: "wan2.6-i2v", used_concurrency: 0 }
+      ]
+    });
+  } finally {
+    await gateway.close();
+  }
+});
+
 test("blocks unknown upstream routes instead of proxying", async () => {
   const config = defaultConfig();
   config.listen.port = 0;

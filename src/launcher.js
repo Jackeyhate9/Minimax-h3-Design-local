@@ -1,8 +1,28 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
+import path from "node:path";
 import { installPaths, localGatewayURL } from "./config.js";
 import { createLocalGateway } from "./local-gateway.js";
 import { createLocalServiceManager } from "./services.js";
+
+export function localRuntimeEnvironment(config, configPath = process.env.H3_LOCAL_CONFIG) {
+  const resolvedConfig = path.resolve(configPath || path.join(process.cwd(), "config", "local.json"));
+  const runtimeRoot = path.resolve(path.dirname(resolvedConfig), "..", "runtime", "opencode-home");
+  const model = `${config.llm.providerId || "local"}/${config.llm.model}`;
+  const toolAllowlist = Array.isArray(config.agentTools?.allowlist)
+    ? config.agentTools.allowlist.filter((name) => typeof name === "string" && name.trim()).map((name) => name.trim()).join(",")
+    : "";
+  return {
+    OPENCODE_CONFIG_CONTENT: JSON.stringify({ model, small_model: model }),
+    OPENCODE_TEST_HOME: path.join(runtimeRoot, "home"),
+    XDG_CONFIG_HOME: path.join(runtimeRoot, "config"),
+    XDG_DATA_HOME: path.join(runtimeRoot, "data"),
+    XDG_STATE_HOME: path.join(runtimeRoot, "state"),
+    XDG_CACHE_HOME: path.join(runtimeRoot, "cache"),
+    // Read by the small, version-checked mcp-tools patch in patcher.js.
+    HILO_MCP_TOOL_ALLOWLIST: toolAllowlist
+  };
+}
 
 export async function launchLocal(installDir, config, logger = console) {
   const paths = installPaths(installDir);
@@ -18,6 +38,7 @@ export async function launchLocal(installDir, config, logger = console) {
 
   const env = {
     ...process.env,
+    ...localRuntimeEnvironment(config),
     CLOUD_GATEWAY_BASE_URL: localGatewayURL(config),
     H3_LOCAL_GATEWAY_BASE_URL: localGatewayURL(config),
     H3_LOCAL_MODE: "1"

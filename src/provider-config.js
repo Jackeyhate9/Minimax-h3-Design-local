@@ -82,7 +82,10 @@ export function localModelCatalog(config) {
       tool: "hub_generate_video",
       refs: 1,
       params: {
-        duration: select("时长", ["5", "10", "15"], "5"),
+        // H3 is trained for roughly 5–15 second clips.  Keep the choices in
+        // that stable range so Design can expose duration directly in its UI
+        // without allowing a single oversized generation to exhaust VRAM.
+        duration: select("时长", ["5", "8", "10", "12", "15"], "8"),
         resolution: select("分辨率", ["720P", "1080P"], "720P")
       }
     })] : [],
