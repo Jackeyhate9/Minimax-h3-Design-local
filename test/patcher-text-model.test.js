@@ -46,7 +46,10 @@ test("injects the configured local LLM into MiniMax TEXT_MODELS", () => {
     const patched = fs.readFileSync(gateway, "utf8");
     assert.match(patched, /id: "local\/fixture-model"/);
     assert.match(patched, /backend: BACKEND_TEXT_OPENAI/);
-    assert.match(fs.readFileSync(mcpTools, "utf8"), /H3_LOCAL_MCP_TOOL_ALLOWLIST_V1/);
+    const patchedMcpTools = fs.readFileSync(mcpTools, "utf8");
+    assert.match(patchedMcpTools, /H3_LOCAL_MCP_TOOL_ALLOWLIST_V2/);
+    assert.match(patchedMcpTools, /HILO_MCP_TOOL_ALLOWLIST\?\.trim\(\) \|\|/);
+    assert.match(patchedMcpTools, /generate_video/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

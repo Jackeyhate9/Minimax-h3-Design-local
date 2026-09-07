@@ -7,7 +7,7 @@ import { localModelCatalog, localLLMProviderConfig } from "./provider-config.js"
 import { settingsPage } from "./settings-page.js";
 import { createMediaTaskRunner } from "./comfyui-adapter.js";
 import { createGpuScheduler } from "./gpu-scheduler.js";
-import { createTextTaskRunner, unloadLocalLLM } from "./text-adapter.js";
+import { assertLocalLLMAvailable, createTextTaskRunner, unloadLocalLLM } from "./text-adapter.js";
 import { formatH3Query, formatH3Submit, matchH3MediaRoute, mediaContentType, normalizeH3MediaBody } from "./h3-media-compat.js";
 
 const MODEL_ROUTE = /^\/api\/(?:v\d+\/)?(?:image|video|audio|speech|music|tool|generate|models|super-resolution)(?:\/|$)/i;
@@ -386,10 +386,11 @@ export function createLocalGateway(config, logger = console, options = {}) {
     }
     if (/^\/v1(?:\/|$)/.test(pathname)) {
       try {
-        await gpuScheduler.run("llm", async () => {
-          if (config.llm.service) await options.serviceManager?.ensure(config.llm.service);
-          try {
-            await proxyLocalLLMRequest(request, response, config);
+          await gpuScheduler.run("llm", async () => {
+            if (config.llm.service) await options.serviceManager?.ensure(config.llm.service);
+            try {
+              await assertLocalLLMAvailable(config);
+              await proxyLocalLLMRequest(request, response, config);
           } finally {
             await unloadLocalLLM(config, logger);
           }

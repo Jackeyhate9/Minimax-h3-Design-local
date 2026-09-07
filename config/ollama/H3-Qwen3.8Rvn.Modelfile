@@ -1,7 +1,8 @@
 FROM Qwen3.8Rvn:latest
 
-# H3 Design uses long agent/tool prompts, but 131K consumes almost all 24 GB VRAM.
-PARAMETER num_ctx 32768
+# H3 Design uses long agent/tool prompts. 40K leaves room for a compact
+# skill/tool prompt and image attachment without reserving the 131K maximum.
+PARAMETER num_ctx 40960
 PARAMETER num_predict 8192
 PARAMETER temperature 0.2
 PARAMETER top_k 20

@@ -13,19 +13,19 @@ export function defaultConfig() {
     network: { allowNonModelCloud: false, upstreamBaseURL: "" },
     gpu: { mode: "serial", unloadAfterTask: true },
     // Keep the local agent's first request below the selected model's context
-    // window.  The complete Design tool catalogue is larger than 32k tokens;
-    // this profile retains the tools required by the normal canvas/skill/media
-    // workflow.  Advanced tools can be added here by an end user.
+    // window. The complete Design tool catalogue is larger than 32k tokens.
+    // Keep the default profile intentionally compact: it covers the normal
+    // canvas / skill / image-to-video flow and leaves enough headroom for a
+    // skill's own instructions plus image attachments. Advanced tools remain
+    // user-configurable in local.json.
     agentTools: {
       allowlist: [
-        "asset_center_search", "asset_center_use_entity",
         "canvas_list_nodes", "canvas_get_node", "canvas_grep_text", "canvas_read_text",
-        "canvas_write_text_node", "canvas_write_file_node", "canvas_write_media_node",
+        "canvas_write_text_node", "canvas_write_media_node",
         "canvas_group_nodes", "canvas_group_recent_outputs",
-        "plan_get_work_items", "plan_get_stage_status", "plan_get_stage_detail", "plan_update_stage_state", "plan_replan", "plan_write", "plan_patch_stage",
-        "generate_image", "generate_video", "generate_audio_speech", "generate_audio_music",
-        "ffmpeg", "merge_videos", "embed_audio", "media_transcribe", "analyse_media", "read_media",
-        "read", "write", "edit", "prompt_write", "image_search", "web_media",
+        "generate_image", "generate_video",
+        "ffmpeg", "merge_videos", "embed_audio", "analyse_media", "read_media",
+        "read", "write", "edit", "prompt_write",
         "reload_skills", "preview_and_collect_feedback", "probe_media"
       ]
     },

@@ -12,9 +12,19 @@ const GETTER_PATCH = "get() {\n      if (h3LocalGatewayBaseUrl) return h3LocalGa
 const TEXT_MODELS_ANCHOR = "var TEXT_MODELS = [";
 const TEXT_MODEL_START = "/* H3_LOCAL_TEXT_MODEL_START */";
 const TEXT_MODEL_END = "/* H3_LOCAL_TEXT_MODEL_END */";
-const MCP_ALLOWLIST_MARKER = "/* H3_LOCAL_MCP_TOOL_ALLOWLIST_V1 */";
+const MCP_ALLOWLIST_MARKER = "/* H3_LOCAL_MCP_TOOL_ALLOWLIST_V2 */";
+const LEGACY_MCP_ALLOWLIST_MARKER = "/* H3_LOCAL_MCP_TOOL_ALLOWLIST_V1 */";
 const MCP_REGISTRAR_ANCHOR = "const originalRegisterTool = server2.registerTool.bind(server2);";
-const MCP_REGISTRAR_PATCH = `${MCP_REGISTRAR_ANCHOR}\n  ${MCP_ALLOWLIST_MARKER}\n  const h3LocalToolAllowlist = new Set((process.env.HILO_MCP_TOOL_ALLOWLIST ?? \"\").split(\",\").map((name) => name.trim()).filter(Boolean));\n  const h3LocalToolAllowed = (name) => h3LocalToolAllowlist.size === 0 || h3LocalToolAllowlist.has(name);`;
+const MCP_DEFAULT_ALLOWLIST = [
+  "canvas_list_nodes", "canvas_get_node", "canvas_grep_text", "canvas_read_text",
+  "canvas_write_text_node", "canvas_write_media_node", "canvas_group_nodes", "canvas_group_recent_outputs",
+  "generate_image", "generate_video",
+  "ffmpeg", "merge_videos", "embed_audio", "analyse_media", "read_media",
+  "read", "write", "edit", "prompt_write",
+  "reload_skills", "preview_and_collect_feedback", "probe_media"
+].join(",");
+const MCP_ALLOWLIST_BLOCK = `${MCP_ALLOWLIST_MARKER}\n  const h3LocalToolAllowlistRaw = process.env.HILO_MCP_TOOL_ALLOWLIST?.trim() || ${JSON.stringify(MCP_DEFAULT_ALLOWLIST)};\n  const h3LocalToolAllowlist = new Set(h3LocalToolAllowlistRaw.split(\",\").map((name) => name.trim()).filter(Boolean));\n  const h3LocalToolAllowed = (name) => h3LocalToolAllowlist.has(name);`;
+const MCP_REGISTRAR_PATCH = `${MCP_REGISTRAR_ANCHOR}\n  ${MCP_ALLOWLIST_BLOCK}`;
 
 function sha256(data) {
   return crypto.createHash("sha256").update(data).digest("hex");
@@ -80,6 +90,13 @@ function patchGateway(file, config) {
 
 function patchedMcpToolsSource(source) {
   if (source.includes(MCP_ALLOWLIST_MARKER)) return source;
+  if (source.includes(LEGACY_MCP_ALLOWLIST_MARKER)) {
+    const legacyBlock = /\/\* H3_LOCAL_MCP_TOOL_ALLOWLIST_V1 \*\/\s*const h3LocalToolAllowlist = new Set\([\s\S]*?;\s*const h3LocalToolAllowed = \(name\) => h3LocalToolAllowlist\.size === 0 \|\| h3LocalToolAllowlist\.has\(name\);/;
+    if (!legacyBlock.test(source)) {
+      throw new Error("Unsupported mcp-tools build: legacy tool allowlist block was not found. No file was changed.");
+    }
+    return source.replace(legacyBlock, MCP_ALLOWLIST_BLOCK);
+  }
   if (!source.includes(MCP_REGISTRAR_ANCHOR)) {
     throw new Error("Unsupported mcp-tools build: tool registrar anchor was not found. No file was changed.");
   }

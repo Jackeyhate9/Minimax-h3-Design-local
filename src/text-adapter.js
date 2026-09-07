@@ -8,6 +8,28 @@ function localBaseURL(value) {
   return url.toString().replace(/\/$/, "");
 }
 
+export async function assertLocalLLMAvailable(config) {
+  const root = localBaseURL(config.llm.baseURL).replace(/\/v1\/?$/i, "");
+  let payload;
+  try {
+    const response = await fetch(`${root}/api/ps`, { signal: AbortSignal.timeout(5000) });
+    if (!response.ok) return;
+    payload = await response.json();
+  } catch {
+    // The subsequent request produces the actionable Ollama connection error.
+    return;
+  }
+  const expected = String(config.llm.model || "").trim();
+  const busy = Array.isArray(payload?.models)
+    ? payload.models.filter((item) => String(item?.name || item?.model || "").trim() !== expected)
+    : [];
+  if (!busy.length) return;
+  const names = busy.map((item) => String(item?.name || item?.model || "unknown-model")).join(", ");
+  const error = new Error(`H3_LOCAL_OLLAMA_BUSY: Ollama is currently holding ${names} in VRAM. Finish or unload that other local task, then retry Design.`);
+  error.code = "H3_LOCAL_OLLAMA_BUSY";
+  throw error;
+}
+
 export async function unloadLocalLLM(config, logger = console) {
   if (config.gpu?.unloadAfterTask === false || config.llm.unloadStrategy === "none") return;
   const root = localBaseURL(config.llm.baseURL).replace(/\/v1\/?$/i, "");
@@ -57,6 +79,7 @@ export function createTextTaskRunner(config, logger = console, options = {}) {
       run("llm", async () => {
         if (config.llm.service) await options.serviceManager?.ensure(config.llm.service);
         try {
+          await assertLocalLLMAvailable(config);
           return await generateText(config, body);
         } finally {
           await unloadLocalLLM(config, logger);

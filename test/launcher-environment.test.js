@@ -23,4 +23,5 @@ test("isolates the embedded OpenCode runtime from the user's global model config
   assert.equal(env.XDG_STATE_HOME, path.join(runtimeRoot, "state"));
   assert.equal(env.XDG_CACHE_HOME, path.join(runtimeRoot, "cache"));
   assert.match(env.HILO_MCP_TOOL_ALLOWLIST, /generate_video/);
+  assert.doesNotMatch(env.HILO_MCP_TOOL_ALLOWLIST, /plan_get_work_items/);
 });
