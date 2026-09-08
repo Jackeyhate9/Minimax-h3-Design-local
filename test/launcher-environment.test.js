@@ -25,5 +25,7 @@ test("isolates the embedded OpenCode runtime from the user's global model config
   assert.match(env.HILO_MCP_TOOL_ALLOWLIST, /generate_video/);
   assert.match(env.HILO_MCP_TOOL_ALLOWLIST, /scene\.edit/);
   assert.match(env.HILO_MCP_TOOL_ALLOWLIST, /scene\.snapshot/);
+  assert.match(env.HILO_MCP_TOOL_ALLOWLIST, /project\.edit/);
+  assert.match(env.HILO_MCP_TOOL_ALLOWLIST, /project\.snapshot/);
   assert.doesNotMatch(env.HILO_MCP_TOOL_ALLOWLIST, /plan_get_work_items/);
 });

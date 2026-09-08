@@ -31,7 +31,8 @@ export function defaultConfig() {
         // registered when its 3D editor opens rather than bloating regular
         // media-agent sessions.
         "scene.get", "scene.edit", "scene.history", "scene.snapshot", "scene.diagnostics",
-        "motion.read", "campath.read", "model.generate", "model.capture", "model.compare"
+        "motion.read", "campath.read", "model.generate", "model.capture", "model.compare",
+        "project.get", "project.edit", "project.view", "project.history", "project.snapshot", "project.diagnostics"
       ]
     },
     services: [],
