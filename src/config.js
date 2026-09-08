@@ -26,7 +26,12 @@ export function defaultConfig() {
         "generate_image", "generate_video",
         "ffmpeg", "merge_videos", "embed_audio", "analyse_media", "read_media",
         "read", "write", "edit", "prompt_write",
-        "reload_skills", "preview_and_collect_feedback", "probe_media"
+        "reload_skills", "preview_and_collect_feedback", "probe_media",
+        // Director Stage is editor-session scoped, so these methods are only
+        // registered when its 3D editor opens rather than bloating regular
+        // media-agent sessions.
+        "scene.get", "scene.edit", "scene.history", "scene.snapshot", "scene.diagnostics",
+        "motion.read", "campath.read", "model.generate", "model.capture", "model.compare"
       ]
     },
     services: [],
