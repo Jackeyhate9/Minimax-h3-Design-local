@@ -1,0 +1,11 @@
+FROM Qwen3.8-27B-GSQ:latest
+
+# Design agents carry a compact skill/tool prompt plus conversation history.
+# Keep the context above the largest observed prompt while avoiding the 131K
+# reservation that would needlessly consume GPU memory.
+PARAMETER num_ctx 40960
+PARAMETER num_predict 8192
+PARAMETER temperature 0.2
+PARAMETER top_k 20
+PARAMETER top_p 0.9
+PARAMETER repeat_penalty 1.05
