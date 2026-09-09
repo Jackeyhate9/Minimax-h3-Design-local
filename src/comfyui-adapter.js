@@ -92,18 +92,26 @@ async function uploadImage(baseURL, file) {
 }
 
 async function applyInputMap(workflow, body, inputMap, baseURL) {
-  for (const descriptor of Object.values(inputMap ?? {})) {
+  const resolvedInputs = new Map();
+  for (const [name, descriptor] of Object.entries(inputMap ?? {})) {
     if (!descriptor || typeof descriptor !== "object") continue;
     const node = workflow[String(descriptor.node)];
     if (!node?.inputs || !descriptor.input) throw new Error(`Workflow input target is invalid: ${JSON.stringify(descriptor)}`);
     let value = firstValue(body, descriptor.from ?? descriptor.source ?? []);
+    let alreadyUploaded = false;
     if (value === undefined) value = descriptor.default;
+    if (value === undefined && descriptor.fallbackFrom) {
+      const fallback = resolvedInputs.get(descriptor.fallbackFrom);
+      value = fallback?.value;
+      alreadyUploaded = fallback?.uploaded === true;
+    }
     if (value === undefined) {
       if (descriptor.required) throw new Error(`Required generation input is missing: ${descriptor.from ?? descriptor.source}`);
       continue;
     }
-    if (descriptor.upload === "image") value = await uploadImage(baseURL, value);
+    if (descriptor.upload === "image" && !alreadyUploaded) value = await uploadImage(baseURL, value);
     node.inputs[descriptor.input] = transformed(value, descriptor.transform);
+    resolvedInputs.set(name, { value, uploaded: descriptor.upload === "image" || alreadyUploaded });
   }
 }
 
