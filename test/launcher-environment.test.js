@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { defaultConfig } from "../src/config.js";
@@ -22,10 +23,25 @@ test("isolates the embedded OpenCode runtime from the user's global model config
   assert.equal(env.XDG_DATA_HOME, path.join(runtimeRoot, "data"));
   assert.equal(env.XDG_STATE_HOME, path.join(runtimeRoot, "state"));
   assert.equal(env.XDG_CACHE_HOME, path.join(runtimeRoot, "cache"));
+  assert.equal(env.HUB_SKILLS_DIR, path.join(os.homedir(), ".hub", "skills"));
+  assert.match(env.EXTRA_SKILLS_DIRS, /\.hub-global/);
   assert.match(env.HILO_MCP_TOOL_ALLOWLIST, /generate_video/);
   assert.match(env.HILO_MCP_TOOL_ALLOWLIST, /scene\.edit/);
   assert.match(env.HILO_MCP_TOOL_ALLOWLIST, /scene\.snapshot/);
   assert.match(env.HILO_MCP_TOOL_ALLOWLIST, /project\.edit/);
   assert.match(env.HILO_MCP_TOOL_ALLOWLIST, /project\.snapshot/);
   assert.doesNotMatch(env.HILO_MCP_TOOL_ALLOWLIST, /plan_get_work_items/);
+});
+
+test("allows the user to configure the installed and supplemental Design skill directories", () => {
+  const config = defaultConfig();
+  config.skills = {
+    installedDir: path.resolve("fixture", "design-skills"),
+    extraDirs: [path.resolve("fixture", "legacy-skills"), path.resolve("fixture", "legacy-skills")]
+  };
+
+  const env = localRuntimeEnvironment(config, path.resolve("fixture", "config", "local.json"));
+
+  assert.equal(env.HUB_SKILLS_DIR, config.skills.installedDir);
+  assert.equal(env.EXTRA_SKILLS_DIRS, path.resolve("fixture", "legacy-skills"));
 });

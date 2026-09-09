@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -12,6 +13,13 @@ export function defaultConfig() {
     listen: { host: "127.0.0.1", port: 17666 },
     network: { allowNonModelCloud: false, upstreamBaseURL: "" },
     gpu: { mode: "serial", unloadAfterTask: true },
+    // Design's OpenCode plugin discovers bundled skills from HUB_SKILLS_DIR.
+    // Leave these empty to use the current user's .hub skills plus legacy
+    // .hub-global skills as a supplemental catalogue.
+    skills: {
+      installedDir: path.join(os.homedir(), ".hub", "skills"),
+      extraDirs: [path.join(os.homedir(), ".hub-global", "skills")]
+    },
     // Keep the local agent's first request below the selected model's context
     // window. The complete Design tool catalogue is larger than 32k tokens.
     // Keep the default profile intentionally compact: it covers the normal
